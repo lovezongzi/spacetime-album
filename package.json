@@ -1,0 +1,15 @@
+{
+  "name": "spacetime-album",
+  "version": "0.1.0",
+  "private": true,
+  "description": "时空相册 · 两个陌生人交换相册里同一天拍摄的照片",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

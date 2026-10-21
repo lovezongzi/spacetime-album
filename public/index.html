@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <meta name="theme-color" content="#f5f1ea" />
+    <meta
+      name="description"
+      content="时空相册 · 和一个陌生人，交换彼此在同一天拍下的照片。"
+    />
+    <title>时空相册 · 同一天，我们各自抬头</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="sunsetStroke" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ff6b45" />
+          <stop offset="1" stop-color="#ffb35c" />
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <div class="phone" id="phone">
+      <div id="app"></div>
+    </div>
+
+    <div id="layer"></div>
+    <div class="toast" id="toast"></div>
+
+    <script src="/exif.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
