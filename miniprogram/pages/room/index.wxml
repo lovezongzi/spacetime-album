@@ -1,0 +1,77 @@
+<view class="page">
+  <view class="page-glow"></view>
+  <view class="page-inner">
+
+    <!-- 头部 -->
+    <view class="room-hero" wx:if="{{pair}}">
+      <view class="hero-kicker">和{{pair.partner.name}}交换的日子</view>
+      <view class="hero-title" wx:if="{{pair.dates.length > 1}}">你们在 {{pair.dates.length}} 个日子里<view class="br"></view>同时按下了快门</view>
+      <view class="hero-title" wx:else>你们在同一天<view class="br"></view>按下了快门</view>
+      <view class="hero-meta mono" wx:if="{{spanLabel}}">{{spanLabel}}</view>
+    </view>
+
+    <!-- 每一天：左右对照 -->
+    <view class="day" wx:for="{{groups}}" wx:key="date">
+      <view class="day-head">
+        <view class="day-date">{{item.pretty}}</view>
+        <view class="day-week">{{item.week}}</view>
+      </view>
+
+      <view class="cols">
+        <!-- 你 -->
+        <view class="col">
+          <view class="lane-tag me">你</view>
+          <view class="shots" wx:if="{{item.mine.length}}">
+            <view class="shot" wx:for="{{item.mine}}" wx:for-item="p" wx:key="id">
+              <image wx:if="{{!p.svg}}" class="shot-img" src="{{p.thumb}}" mode="aspectFill" />
+              <view wx:else class="shot-img sky-ph g{{p.grad}}">
+                <view class="sky-sun" style="left:{{p.sunX}}%;top:{{p.sunY}}%"></view>
+              </view>
+              <view class="shot-time mono" wx:if="{{p.time}}">{{p.time}}</view>
+            </view>
+          </view>
+          <view class="locked quiet" wx:else>
+            <view class="locked-text"><view class="locked-title">这一天没有照片</view></view>
+          </view>
+        </view>
+
+        <!-- 对方 -->
+        <view class="col">
+          <view class="lane-tag them">{{pair.partner.name}}</view>
+          <view class="shots" wx:if="{{item.canSee}}">
+            <view class="shot" wx:for="{{item.theirs}}" wx:for-item="p" wx:key="id">
+              <image wx:if="{{!p.svg}}" class="shot-img" src="{{p.thumb}}" mode="aspectFill" />
+              <view wx:else class="shot-img sky-ph g{{p.grad}}">
+                <view class="sky-sun" style="left:{{p.sunX}}%;top:{{p.sunY}}%"></view>
+              </view>
+              <view class="shot-time mono" wx:if="{{p.time}}">{{p.time}}</view>
+            </view>
+          </view>
+          <view class="locked" wx:else>
+            <view class="locked-text">
+              <view class="locked-title">{{pair.mine ? '等 TA 展示' : '等你先展示'}}</view>
+              <view class="locked-sub">双方都按下展示后，这一天才会同时亮起来</view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+  </view>
+</view>
+
+<!-- 底部操作 -->
+<view class="dock" wx:if="{{pair && !pair.mine}}">
+  <button class="btn primary block" bindtap="reveal" loading="{{revealing}}" disabled="{{revealing}}">
+    展示我的这一天
+  </button>
+  <view class="tiny dock-tip">按下去，TA 就能看到你那天拍下的样子。</view>
+</view>
+
+<view class="dock whisper" wx:if="{{pair && pair.mine && !pair.canSee}}">
+  <view class="muted">你已经按下了展示，等 TA 也打开这一页。</view>
+</view>
+
+<view class="dock whisper" wx:if="{{pair && pair.canSee}}">
+  <view class="muted">你们彼此都看见了。</view>
+</view>

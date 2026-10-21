@@ -1,0 +1,117 @@
+<view class="page">
+  <view class="page-glow"></view>
+  <view class="page-inner">
+
+    <!-- 模式切换 -->
+    <view class="seg">
+      <view class="seg-item {{mode === 'random' ? 'on' : ''}}" data-mode="random" bindtap="setMode">随机一天</view>
+      <view class="seg-item {{mode === 'range' ? 'on' : ''}}" data-mode="range" bindtap="setMode">指定时间段</view>
+    </view>
+
+    <!-- 没有照片 -->
+    <view class="empty-box" wx:if="{{!hasPhotos}}">
+      <view class="empty-emoji">◎</view>
+      <view class="h3">相册还是空的</view>
+      <view class="muted empty-desc">
+        匹配只比对日期和坐标，不看照片。<view class="br"></view>先去「相册」授权几张，或者载入示例相册。
+      </view>
+      <button class="btn ghost small go-album" bindtap="goAlbum">去相册</button>
+    </view>
+
+    <block wx:else>
+      <!-- 随机一天 -->
+      <block wx:if="{{mode === 'random'}}">
+        <view class="lucky">
+          <view class="lucky-label">抽到的这一天</view>
+          <view class="lucky-date mono">{{random.monthDay || '—'}}</view>
+          <view class="lucky-meta mono" wx:if="{{random.year}}">{{random.week}} · {{random.year}}</view>
+
+          <view class="lucky-note" wx:if="{{loading}}">正在翻你的相册…</view>
+          <view class="lucky-note strong" wx:elif="{{random.count}}">
+            有 {{random.count}} 个人，这一天也在按快门
+          </view>
+          <view class="lucky-note" wx:elif="{{random.date}}">
+            这一天，暂时只有你一个人
+          </view>
+
+          <view class="lucky-actions">
+            <view class="redraw" bindtap="draw">{{random.date ? '换一天' : '抽一天'}}</view>
+          </view>
+        </view>
+      </block>
+
+      <!-- 指定时间段 -->
+      <block wx:else>
+        <view class="range-box">
+          <view class="range-row">
+            <picker mode="date" value="{{from}}" end="{{today}}" bindchange="onFrom">
+              <view class="range-pick {{from ? '' : 'ph'}}">{{from || '开始日期'}}</view>
+            </picker>
+            <view class="range-dash">—</view>
+            <picker mode="date" value="{{to}}" end="{{today}}" bindchange="onTo">
+              <view class="range-pick {{to ? '' : 'ph'}}">{{to || '结束日期'}}</view>
+            </picker>
+          </view>
+          <view class="range-hint tiny">留空就是不限</view>
+          <button class="btn primary block range-go" bindtap="searchRange" loading="{{loading}}">
+            寻找这段时间里的重合
+          </button>
+        </view>
+      </block>
+
+      <!-- 结果 -->
+      <view class="section" wx:if="{{list.length}}">
+        <view class="section-head">
+          <view class="h3">这些人，同一天也按了快门</view>
+          <view class="tiny">{{list.length}} 位</view>
+        </view>
+
+        <view class="cand" wx:for="{{list}}" wx:key="key">
+          <view class="avatar g{{item.grad}} av">{{item.initial}}</view>
+          <view class="grow">
+            <view class="cand-name">{{item.user.name}}</view>
+            <view class="cand-meta">{{item.meta}}</view>
+          </view>
+          <view
+            class="swap-btn"
+            data-uid="{{item.user.id}}"
+            data-name="{{item.user.name}}"
+            data-dates="{{item.overlapStr}}"
+            bindtap="startSwap"
+          >交换</view>
+        </view>
+      </view>
+
+      <view class="empty" wx:elif="{{loaded && !loading}}">
+        <view class="empty-emoji">·</view>
+        <view class="muted">{{mode === 'range' ? '这段时间里，没有找到重合的日子' : '还没有结果，抽一天试试'}}</view>
+      </view>
+    </block>
+
+  </view>
+</view>
+
+<!-- 选日子的弹层 -->
+<view wx:if="{{sheet}}" class="mask" bindtap="closeSheet"></view>
+<view wx:if="{{sheet}}" class="sheet">
+  <view class="sheet-grip"></view>
+  <view class="between sheet-head">
+    <view class="h3">和 {{sheet.name}} 交换哪几天</view>
+    <view class="tiny mono">{{sheet.picked}} / {{sheet.dates.length}}</view>
+  </view>
+  <view class="sheet-body">
+    <view class="sheet-tip muted">这些日子里，你们都拍过照。选中的日期会一起发过去。</view>
+    <view class="chips">
+      <view
+        class="day-chip {{item.on ? 'on' : ''}}"
+        wx:for="{{sheet.dates}}"
+        wx:key="date"
+        data-date="{{item.date}}"
+        bindtap="toggleDate"
+      >{{item.label}}</view>
+    </view>
+  </view>
+  <button class="btn primary block sheet-go" bindtap="sendSwap" disabled="{{!sheet.picked || sending}}">
+    {{sending ? '正在发出…' : '发出交换请求'}}
+  </button>
+</view>

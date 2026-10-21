@@ -1,0 +1,142 @@
+.login {
+  min-height: 100vh;
+  background: #f5f1ea;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------ 上半：黄昏 ------------------------------ */
+
+.hero {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 56vh;
+  background: linear-gradient(168deg, #241f38 0%, #3d2a4d 34%, #7b4356 62%, #c2705a 82%, #f0a367 100%);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 48rpx 84rpx;
+}
+
+.sun {
+  position: absolute;
+  left: 50%;
+  bottom: 300rpx;
+  width: 96rpx;
+  height: 96rpx;
+  margin-left: -48rpx;
+  border-radius: 50%;
+  background: #fff3d6;
+  box-shadow: 0 0 120rpx 60rpx rgba(255, 214, 150, 0.34);
+}
+
+.sun-halo {
+  position: absolute;
+  left: 50%;
+  bottom: 230rpx;
+  width: 520rpx;
+  height: 520rpx;
+  margin-left: -260rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 170, 0.22) 0%, rgba(255, 220, 170, 0) 68%);
+}
+
+.ridge {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -1rpx;
+  height: 300rpx;
+  background: #1b1727;
+}
+
+.ridge.r1 {
+  height: 220rpx;
+  bottom: 0;
+  opacity: 0.62;
+  clip-path: polygon(0 46%, 14% 22%, 26% 52%, 40% 18%, 55% 48%, 68% 30%, 82% 56%, 94% 34%, 100% 46%, 100% 100%, 0 100%);
+}
+
+.ridge.r2 {
+  height: 170rpx;
+  opacity: 0.92;
+  clip-path: polygon(0 62%, 10% 44%, 22% 68%, 35% 40%, 48% 66%, 62% 46%, 76% 70%, 88% 50%, 100% 64%, 100% 100%, 0 100%);
+}
+
+.hero-veil {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 320rpx;
+  background: linear-gradient(180deg, rgba(27, 23, 39, 0) 0%, rgba(27, 23, 39, 0.72) 62%, rgba(27, 23, 39, 0.94) 100%);
+}
+
+.hero-text {
+  position: relative;
+  z-index: 2;
+  color: #fff;
+  padding-top: env(safe-area-inset-top);
+}
+
+.brand {
+  font-size: 68rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  text-shadow: 0 6rpx 30rpx rgba(0, 0, 0, 0.28);
+}
+
+.sub {
+  margin-top: 22rpx;
+  font-size: 27rpx;
+  line-height: 1.72;
+  color: rgba(255, 245, 235, 0.78);
+  letter-spacing: 0.5rpx;
+}
+
+.br {
+  height: 0;
+}
+
+/* ------------------------------ 下半：登录 ------------------------------ */
+
+.panel {
+  flex: 0 0 auto;
+  background: #f5f1ea;
+  padding: 56rpx 48rpx calc(56rpx + env(safe-area-inset-bottom));
+  border-radius: 48rpx 48rpx 0 0;
+  margin-top: -40rpx;
+  position: relative;
+  z-index: 3;
+}
+
+.field {
+  background: #ffffff;
+  border-radius: 40rpx;
+  padding: 0 36rpx;
+  box-shadow: 0 2rpx 6rpx rgba(29, 26, 23, 0.04), 0 10rpx 30rpx rgba(29, 26, 23, 0.05);
+  margin-bottom: 28rpx;
+}
+
+.input {
+  height: 104rpx;
+  font-size: 31rpx;
+  color: #1d1a17;
+}
+
+.ph {
+  color: #b6ada2;
+}
+
+.footnote {
+  margin-top: 30rpx;
+  font-size: 23rpx;
+  line-height: 1.7;
+  color: #a89e93;
+  text-align: center;
+}
+
+.btn.primary {
+  height: 104rpx;
+  font-size: 31rpx;
+}

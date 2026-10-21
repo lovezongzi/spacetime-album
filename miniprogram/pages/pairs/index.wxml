@@ -1,0 +1,73 @@
+<view class="page">
+  <view class="page-glow"></view>
+  <view class="page-inner">
+
+    <!-- 收到的请求 -->
+    <view class="section" wx:if="{{incoming.length}}">
+      <view class="section-head">
+        <view class="h3">有人想和你交换</view>
+        <view class="tiny">{{incoming.length}} 个</view>
+      </view>
+
+      <view class="req" wx:for="{{incoming}}" wx:key="id">
+        <view class="row gap-20">
+          <view class="avatar g{{item.grad}} av">{{item.initial}}</view>
+          <view class="grow">
+            <view class="req-name">{{item.partner.name}}</view>
+            <view class="req-meta">{{item.datesLabel}}</view>
+          </view>
+        </view>
+        <view class="req-note">TA 想看看你那天拍下的样子，也想让你看看 TA 的。</view>
+        <view class="req-actions">
+          <view class="btn small ghost" data-id="{{item.id}}" bindtap="decline">婉拒</view>
+          <view class="btn small primary" data-id="{{item.id}}" bindtap="accept">同意交换</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 正在交换 -->
+    <view class="section" wx:if="{{rooms.length}}">
+      <view class="section-head">
+        <view class="h3">正在交换</view>
+        <view class="tiny">{{rooms.length}} 段</view>
+      </view>
+
+      <view class="room" wx:for="{{rooms}}" wx:key="id" data-id="{{item.id}}" bindtap="openRoom">
+        <view class="avatar g{{item.grad}} av">{{item.initial}}</view>
+        <view class="grow">
+          <view class="room-name">{{item.partner.name}}</view>
+          <view class="room-meta">{{item.datesLabel}}</view>
+        </view>
+        <view class="state {{item.canSee ? 'live' : (item.mine ? 'wait' : 'todo')}}">{{item.stateLabel}}</view>
+      </view>
+    </view>
+
+    <!-- 等待对方 -->
+    <view class="section" wx:if="{{outgoing.length}}">
+      <view class="section-head">
+        <view class="h3">等对方回应</view>
+        <view class="tiny">{{outgoing.length}} 个</view>
+      </view>
+
+      <view class="room waiting" wx:for="{{outgoing}}" wx:key="id">
+        <view class="avatar g{{item.grad}} av">{{item.initial}}</view>
+        <view class="grow">
+          <view class="room-name">{{item.partner.name}}</view>
+          <view class="room-meta">{{item.datesLabel}}</view>
+        </view>
+        <view class="state wait">等待中</view>
+      </view>
+    </view>
+
+    <!-- 全空 -->
+    <view class="empty-box" wx:if="{{empty}}">
+      <view class="empty-emoji">✉</view>
+      <view class="h3">还没有交换</view>
+      <view class="muted empty-desc">
+        去「遇见」抽一天，看看谁在同一天也按下了快门。<view class="br"></view>对方同意后，你们才会看到彼此的照片。
+      </view>
+      <view class="btn ghost small go" bindtap="goMatch">去遇见</view>
+    </view>
+
+  </view>
+</view>

@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { load, save, saveNow } = require('./db');
@@ -122,6 +123,38 @@ function pairOf(id) {
   return db.pairs.find((p) => p.id === id) || null;
 }
 
+/**
+ * 小程序登录：配置了 WX_APPID / WX_SECRET 时用 code 换 openid（真实身份），
+ * 没配置时退回客户端生成的设备标识，保证本地开发也能完整跑通。
+ */
+function wxCode2Session(code) {
+  return new Promise((resolve) => {
+    const appid = process.env.WX_APPID;
+    const secret = process.env.WX_SECRET;
+    if (!appid || !secret || !code) return resolve(null);
+    const qs =
+      `appid=${encodeURIComponent(appid)}&secret=${encodeURIComponent(secret)}` +
+      `&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`;
+    const req = https.get(`https://api.weixin.qq.com/sns/jscode2session?${qs}`, (r) => {
+      let raw = '';
+      r.on('data', (d) => (raw += d));
+      r.on('end', () => {
+        try {
+          const j = JSON.parse(raw);
+          resolve(j.openid ? j : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(6000, () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
 function partnerOf(pair, userId) {
   const otherId = pair.a === userId ? pair.b : pair.a;
   return db.users.find((u) => u.id === otherId) || { id: otherId, name: '已离开的用户' };
@@ -183,6 +216,16 @@ async function handleApi(req, res, url) {
   const method = req.method;
   const route = seg.join('/');
 
+  // 健康检查：小程序端启动时用来判断服务端在不在
+  if (method === 'GET' && route === 'health') {
+    return send(res, 200, {
+      ok: true,
+      users: db.users.length,
+      photos: db.photos.length,
+      wxBound: !!(process.env.WX_APPID && process.env.WX_SECRET),
+    });
+  }
+
   // 登录 / 注册：昵称即身份，返回 token
   if (method === 'POST' && route === 'login') {
     const body = await readBody(req);
@@ -201,6 +244,35 @@ async function handleApi(req, res, url) {
     });
   }
 
+  // 小程序登录：code（微信）或 clientId（本地设备）换 token
+  if (method === 'POST' && route === 'wx/login') {
+    const body = await readBody(req);
+    const name = String(body.name || '').trim().slice(0, 16) || '路过的人';
+    const clientId = String(body.clientId || '').slice(0, 64);
+    const sess = await wxCode2Session(String(body.code || '').slice(0, 256));
+    const key = sess && sess.openid ? `wx:${sess.openid}` : clientId ? `dev:${clientId}` : '';
+
+    if (!key) return send(res, 400, { error: '缺少身份标识' });
+
+    let user = db.users.find((u) => u.wxKey === key && !u.demo);
+    if (!user) {
+      user = { id: uid('u'), name, token: uid('t'), wxKey: key, createdAt: Date.now() };
+      db.users.push(user);
+      save();
+    } else if (name !== user.name && user.namedAt !== -1) {
+      // 用户改了昵称，同步过来
+      user.name = name;
+      save();
+    }
+
+    return send(res, 200, {
+      token: user.token,
+      user: publicUser(user),
+      stats: albumStats(user.id),
+      bound: !!(sess && sess.openid),
+    });
+  }
+
   const me = userByToken(req);
   if (!me) return send(res, 401, { error: '登录状态已失效，请重新进入' });
 
@@ -209,7 +281,7 @@ async function handleApi(req, res, url) {
   }
 
   if (method === 'GET' && route === 'photos') {
-    return send(res, 200, { photos: photosOf(me.id), stats: albumStats(me.id) });
+    return send(res, 200, { photos: photosOf(me.id).map(slim), stats: albumStats(me.id) });
   }
 
   if (method === 'POST' && route === 'photos') {
@@ -219,8 +291,8 @@ async function handleApi(req, res, url) {
     for (const raw of list) {
       const date = String(raw.date || '');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-      const thumb = typeof raw.thumb === 'string' ? raw.thumb.slice(0, 900000) : '';
-      if (!thumb.startsWith('data:image/')) continue;
+      const thumb = typeof raw.thumb === 'string' ? raw.thumb : '';
+      if (!thumb.startsWith('data:image/') || thumb.length > 900000) continue;
       const photo = {
         id: uid('ph'),
         userId: me.id,
@@ -397,6 +469,16 @@ async function handleApi(req, res, url) {
       return send(res, 200, { pair: summarizePair(pair, me.id) });
     }
 
+    // 轻量轮询：只回状态，不带照片，避免每次把 base64 全量重传
+    if (method === 'GET' && seg[2] === 'state') {
+      tickDemo();
+      const iAmA = pair.a === me.id;
+      return send(res, 200, {
+        pair: summarizePair(pair, me.id),
+        canSee: !!(pair.revealed[iAmA ? 'a' : 'b'] && pair.revealed[iAmA ? 'b' : 'a']),
+      });
+    }
+
     if (method === 'GET') {
       tickDemo();
       const iAmA = pair.a === me.id;
@@ -436,6 +518,8 @@ function slim(p) {
     lat: p.lat,
     lng: p.lng,
     thumb: p.thumb,
+    // 小程序 <image> 不支持 svg，前端据此改用渐变占位
+    svg: typeof p.thumb === 'string' && p.thumb.startsWith('data:image/svg'),
   };
 }
 

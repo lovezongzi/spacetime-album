@@ -1,0 +1,136 @@
+.section:first-child {
+  margin-top: 28rpx;
+}
+
+.av {
+  width: 84rpx;
+  height: 84rpx;
+  font-size: 34rpx;
+}
+
+/* ------------------------------ 请求 ------------------------------ */
+
+.req {
+  background: #ffffff;
+  border-radius: 32rpx;
+  padding: 30rpx 28rpx 26rpx;
+  margin-bottom: 18rpx;
+  box-shadow: 0 2rpx 6rpx rgba(29, 26, 23, 0.04), 0 12rpx 34rpx rgba(29, 26, 23, 0.06);
+  border: 2rpx solid rgba(255, 158, 88, 0.22);
+}
+
+.req-name {
+  font-size: 30rpx;
+  font-weight: 650;
+}
+
+.req-meta {
+  margin-top: 4rpx;
+  font-size: 23rpx;
+  color: #9b9287;
+}
+
+.req-note {
+  margin-top: 20rpx;
+  font-size: 25rpx;
+  color: #6d645a;
+  line-height: 1.62;
+}
+
+.req-actions {
+  margin-top: 24rpx;
+  display: flex;
+  gap: 16rpx;
+  justify-content: flex-end;
+}
+
+.req-actions .btn {
+  flex: 0 0 auto;
+  height: 68rpx;
+  line-height: 68rpx;
+  padding: 0 34rpx;
+}
+
+/* ------------------------------ 房间列表 ------------------------------ */
+
+.room {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  background: #ffffff;
+  border-radius: 30rpx;
+  padding: 24rpx 26rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 2rpx 6rpx rgba(29, 26, 23, 0.04), 0 10rpx 30rpx rgba(29, 26, 23, 0.045);
+}
+
+.room.waiting {
+  opacity: 0.72;
+}
+
+.room-name {
+  font-size: 29rpx;
+  font-weight: 600;
+}
+
+.room-meta {
+  margin-top: 4rpx;
+  font-size: 23rpx;
+  color: #9b9287;
+}
+
+.state {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  padding: 6rpx 18rpx;
+  border-radius: 20rpx;
+  letter-spacing: 0.3rpx;
+}
+
+.state.live {
+  background: #e8f3ea;
+  color: #3f7a4f;
+}
+
+.state.todo {
+  background: linear-gradient(120deg, #fff1e6, #ffe6c9);
+  color: #a3441c;
+  font-weight: 600;
+}
+
+.state.wait {
+  background: rgba(29, 26, 23, 0.05);
+  color: #9b9287;
+}
+
+/* ------------------------------ 空态 ------------------------------ */
+
+.empty-box {
+  margin-top: 88rpx;
+  padding: 80rpx 44rpx 64rpx;
+  background: #ffffff;
+  border-radius: 36rpx;
+  text-align: center;
+  box-shadow: 0 2rpx 6rpx rgba(29, 26, 23, 0.04), 0 12rpx 36rpx rgba(29, 26, 23, 0.05);
+}
+
+.empty-emoji {
+  font-size: 58rpx;
+  color: #ff9e58;
+  opacity: 0.45;
+  margin-bottom: 16rpx;
+}
+
+.empty-desc {
+  margin-top: 14rpx;
+  line-height: 1.7;
+}
+
+.go {
+  margin-top: 32rpx;
+  display: inline-flex;
+}
+
+.br {
+  height: 0;
+}

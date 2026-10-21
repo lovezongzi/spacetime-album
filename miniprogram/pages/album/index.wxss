@@ -1,0 +1,140 @@
+.head {
+  padding: 36rpx 4rpx 8rpx;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.avatar.me {
+  width: 96rpx;
+  height: 96rpx;
+  font-size: 40rpx;
+}
+
+.name {
+  font-size: 38rpx;
+  font-weight: 650;
+  letter-spacing: -0.5rpx;
+}
+
+.span {
+  font-size: 22rpx;
+  color: #b3a99e;
+  letter-spacing: 0.5rpx;
+  padding-bottom: 6rpx;
+}
+
+/* ------------------------------ 空态 ------------------------------ */
+
+.empty-box {
+  margin-top: 40rpx;
+  padding: 88rpx 48rpx 72rpx;
+  background: #ffffff;
+  border-radius: 36rpx;
+  text-align: center;
+  box-shadow: 0 2rpx 6rpx rgba(29, 26, 23, 0.04), 0 12rpx 36rpx rgba(29, 26, 23, 0.05);
+}
+
+.empty-emoji {
+  font-size: 64rpx;
+  color: #ff9e58;
+  opacity: 0.5;
+  margin-bottom: 18rpx;
+}
+
+.empty-desc {
+  margin-top: 16rpx;
+  line-height: 1.7;
+}
+
+/* ------------------------------ 网格 ------------------------------ */
+
+.grid {
+  margin-top: 32rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.cell {
+  position: relative;
+  width: calc((100% - 24rpx) / 3);
+  padding-top: calc((100% - 24rpx) / 3);
+  border-radius: 22rpx;
+  overflow: hidden;
+  background: #ece5db;
+}
+
+.thumb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.tag {
+  position: absolute;
+  left: 8rpx;
+  bottom: 8rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 10rpx;
+  background: rgba(22, 18, 15, 0.46);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 20rpx;
+  letter-spacing: 0.2rpx;
+  backdrop-filter: blur(6rpx);
+}
+
+/* ------------------------------ 操作 ------------------------------ */
+
+.actions {
+  margin-top: 44rpx;
+}
+
+.sample {
+  margin-top: 20rpx;
+}
+
+.tip {
+  margin-top: 28rpx;
+  text-align: center;
+  line-height: 1.75;
+}
+
+/* ------------------------------ 详情 ------------------------------ */
+
+.detail-preview {
+  width: 100%;
+  height: 460rpx;
+  border-radius: 28rpx;
+  overflow: hidden;
+  background: #ece5db;
+  margin-bottom: 28rpx;
+}
+
+.detail-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.detail-date {
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.detail-meta {
+  margin-top: 8rpx;
+}
+
+.remove {
+  margin-top: 32rpx;
+  color: #c0503a;
+  font-size: 27rpx;
+}
+
+.br {
+  height: 0;
+}

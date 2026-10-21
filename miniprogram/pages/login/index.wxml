@@ -1,0 +1,32 @@
+<view class="login">
+  <view class="hero">
+    <view class="sun-halo"></view>
+    <view class="sun"></view>
+    <view class="ridge r1"></view>
+    <view class="ridge r2"></view>
+    <view class="hero-veil"></view>
+    <view class="hero-text">
+      <view class="brand">时空相册</view>
+      <view class="sub">在某年某一天，我们还不认识<view class="br"></view>却可能对着同一片火烧云，同时按下快门</view>
+    </view>
+  </view>
+
+  <view class="panel">
+    <view class="field">
+      <input
+        class="input"
+        value="{{name}}"
+        placeholder="给自己起个名字"
+        placeholder-class="ph"
+        maxlength="16"
+        confirm-type="done"
+        bindinput="onName"
+        bindconfirm="enter"
+      />
+    </view>
+    <button class="btn primary block" bindtap="enter" loading="{{loading}}" disabled="{{loading}}">
+      进入时空相册
+    </button>
+    <view class="footnote">不需要手机号，昵称就是你的身份。<view class="br"></view>换台设备用同一个名字进入即可继续。</view>
+  </view>
+</view>

@@ -1,0 +1,83 @@
+<view class="page">
+  <view class="page-glow"></view>
+  <view class="page-inner">
+
+    <!-- 头部：身份 + 相册概览 -->
+    <view class="head">
+      <view class="row gap-20">
+        <view class="avatar g{{selfGrad}} me">{{initial}}</view>
+        <view class="grow">
+          <view class="name">{{user.name}}</view>
+          <view class="muted mono" wx:if="{{stats.photos}}">
+            {{stats.photos}} 张照片 · {{stats.dates}} 个日子
+          </view>
+          <view class="muted" wx:else>还没有照片</view>
+        </view>
+      </view>
+      <view class="span mono" wx:if="{{spanLabel}}">{{spanLabel}}</view>
+    </view>
+
+    <!-- 空态 -->
+    <view class="empty-box" wx:if="{{!photos.length && !loading}}">
+      <view class="empty-emoji">◐</view>
+      <view class="h3">先把相册交出来一点</view>
+      <view class="muted empty-desc">
+        授权你拍过的照片，只读走拍摄时间和地点，<view class="br"></view>原图不会离开这台手机。
+      </view>
+    </view>
+
+    <!-- 照片网格 -->
+    <view class="grid" wx:if="{{photos.length}}">
+      <view
+        class="cell"
+        wx:for="{{photos}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="openPhoto"
+      >
+        <image
+          wx:if="{{!item.svg}}"
+          class="thumb"
+          src="{{item.thumb}}"
+          mode="aspectFill"
+          lazy-load
+        />
+        <view wx:else class="thumb sky-ph g{{item.grad}}">
+          <view class="sky-sun" style="left:{{item.sunX}}%;top:{{item.sunY}}%"></view>
+        </view>
+        <view class="tag mono">{{item.dayLabel}}</view>
+      </view>
+    </view>
+
+    <!-- 操作 -->
+    <view class="actions">
+      <button class="btn primary block" bindtap="importPhotos" disabled="{{importing || busy}}">
+        {{importing ? '正在读取…' : (photos.length ? '再导入一些照片' : '从手机相册导入')}}
+      </button>
+      <button class="btn ghost block sample" bindtap="loadSample" disabled="{{importing || busy}}">
+        载入示例相册（先看看效果）
+      </button>
+      <view class="tiny tip">只读取拍摄日期与 GPS，原图不上传。<view class="br"></view>支持一次选 9 张，可以反复导入。</view>
+    </view>
+
+  </view>
+</view>
+
+<!-- 照片详情 -->
+<view wx:if="{{detail}}" class="mask" bindtap="closeDetail"></view>
+<view wx:if="{{detail}}" class="sheet">
+  <view class="sheet-grip"></view>
+  <view class="sheet-body">
+    <view class="detail-preview">
+      <image wx:if="{{!detail.svg}}" class="detail-img" src="{{detail.thumb}}" mode="aspectFill" />
+      <view wx:else class="detail-img sky-ph g{{detail.grad}}">
+        <view class="sky-sun" style="left:{{detail.sunX}}%;top:{{detail.sunY}}%"></view>
+      </view>
+    </view>
+    <view class="detail-date">{{detail.pretty}}</view>
+    <view class="muted detail-meta">
+      {{detail.time || '时间未知'}}<text wx:if="{{detail.place}}"> · {{detail.place}}</text><text wx:elif="{{detail.hasGeo}}"> · 已记录坐标</text>
+    </view>
+    <button class="btn quiet block remove" bindtap="removePhoto">从相册移除这张</button>
+  </view>
+</view>

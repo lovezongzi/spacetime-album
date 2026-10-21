@@ -1,0 +1,30 @@
+{
+  "pages": [
+    "pages/login/index",
+    "pages/album/index",
+    "pages/match/index",
+    "pages/pairs/index",
+    "pages/room/index"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#f5f1ea",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "时空相册",
+    "backgroundColor": "#f5f1ea",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#9b9287",
+    "selectedColor": "#ff6b45",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/album/index", "text": "相册" },
+      { "pagePath": "pages/match/index", "text": "遇见" },
+      { "pagePath": "pages/pairs/index", "text": "交换" }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}
