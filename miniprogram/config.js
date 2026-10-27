@@ -11,7 +11,7 @@
  * CLOUD_ENV 留空表示使用账号下的「默认环境」（通常只有一个环境，够用）。
  * 如果有多个环境，把它填成环境 ID，例如 'spacetime-8g0abcde12345678'。
  */
-const CLOUD_ENV = '';
+const CLOUD_ENV = 'sit-d3gjwf9ba4e469265';
 
 /** 云函数名（cloudfunctions/api） */
 const CLOUD_FN = 'api';

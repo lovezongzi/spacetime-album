@@ -48,11 +48,25 @@ echo "云函数  : $FN_NAME"
 echo "项目    : $PROJECT"
 echo
 
-"$CLI" cloud functions deploy \
+OUT=$("$CLI" cloud functions deploy \
   --env "$ENV_ID" \
   --names "$FN_NAME" \
   --project "$PROJECT" \
-  --remote-npm-install
+  --remote-npm-install 2>&1)
+
+echo "$OUT" | grep -v "DeprecationWarning\|trace-deprecation"
+
+# CLI 部署失败时退出码依然是 0，只能看输出里有没有 ✖
+if echo "$OUT" | grep -q "✖ deploy cloudfunctions"; then
+  echo
+  if echo "$OUT" | grep -q "Creating"; then
+    echo "⚠ 函数还在创建中，等 10 秒再跑一次就好："
+    echo "  ./scripts/deploy.sh $ENV_ID"
+  else
+    echo "✗ 部署失败，看上面的报错。"
+  fi
+  exit 1
+fi
 
 echo
 echo "✓ 云函数已部署。接下来："

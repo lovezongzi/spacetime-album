@@ -18,6 +18,11 @@
     "useCompilerPlugins": false
   },
   "condition": {},
+  "packOptions": {
+    "ignore": [
+      { "type": "file", "value": "preview-qr.png" }
+    ]
+  },
   "editorSetting": {
     "tabIndent": "insertSpaces",
     "tabSize": 2
