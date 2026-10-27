@@ -7,4 +7,5 @@ data/
 
 # 开发者工具产出的临时文件
 miniprogram-qr.png
+miniprogram/preview-qr.png
 miniprogram/project.private.config.json

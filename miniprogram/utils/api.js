@@ -1,33 +1,44 @@
 /**
- * 请求封装：自动带 token、统一错误文案、401 自动回登录页。
+ * 请求封装：走云函数，自动解包 {code, data}，统一错误文案，401 自动回登录页。
+ *
+ * 页面里的调用方式完全没变（api.get('/api/photos')），只是底层从 wx.request 换成了
+ * wx.cloud.callFunction —— 这也是为什么真机不会再被域名白名单拦住。
  */
-const { BASE_URL } = require('../config');
+const { CLOUD_FN } = require('../config');
 
-function raw(path, { method = 'GET', data, auth = true } = {}) {
+function raw(path, { method = 'GET', data } = {}) {
   return new Promise((resolve, reject) => {
-    const app = getApp();
-    const header = { 'content-type': 'application/json' };
-    if (auth && app && app.globalData.token) header['x-token'] = app.globalData.token;
+    if (!wx.cloud) {
+      reject(new Error('基础库版本过低，请把开发者工具的调试基础库调到 2.2.3 以上'));
+      return;
+    }
 
-    wx.request({
-      url: BASE_URL + path,
-      method,
-      data,
-      header,
-      timeout: 25000,
+    wx.cloud.callFunction({
+      name: CLOUD_FN,
+      data: { path, method, body: data || {} },
       success(res) {
-        const body = res.data || {};
-        if (res.statusCode >= 200 && res.statusCode < 300) return resolve(body);
-        const err = new Error(body.error || `请求失败 (${res.statusCode})`);
-        err.statusCode = res.statusCode;
+        const r = res.result || {};
+        const code = typeof r.code === 'number' ? r.code : 500;
+        const body = r.data || {};
+
+        if (code >= 200 && code < 300) return resolve(body);
+
+        const err = new Error(body.error || `请求失败 (${code})`);
+        err.statusCode = code;
         err.body = body;
         reject(err);
       },
       fail(e) {
-        const msg = /timeout/i.test(e.errMsg || '')
-          ? '网络有点慢，稍后再试'
-          : '连不上服务器，检查一下电脑上的服务有没有开';
-        reject(new Error(msg));
+        const msg = e.errMsg || '';
+        let text = '云服务连不上，稍后再试';
+        if (/FunctionName|FUNCTION_NOT_FOUND|-501000|not found/i.test(msg)) {
+          text = '云函数 api 还没部署：开发者工具里右键 cloudfunctions/api → 上传并部署';
+        } else if (/env|environment|envId/i.test(msg)) {
+          text = '云开发环境没选对：在开发者工具「云开发」面板里确认环境，再核对 config.js';
+        } else if (/timeout/i.test(msg)) {
+          text = '云函数响应太慢，稍后再试';
+        }
+        reject(new Error(text));
       },
     });
   });

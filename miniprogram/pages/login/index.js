@@ -24,19 +24,11 @@ Page({
 
     this.setData({ loading: true });
     try {
-      // 有配置 AppID 时，这个 code 会在服务端换成 openid；没有就是空字符串，
-      // 服务端会退回用本地生成的 clientId 作为稳定身份。
-      const code = await new Promise((resolve) => {
-        wx.login({
-          success: (r) => resolve(r.code || ''),
-          fail: () => resolve(''),
-        });
-      });
-
+      // 云开发下身份由云函数直接取 openid，不需要先把 code 换成 openid，
+      // 所以这里只是把昵称提交上去。
       const d = await api.raw('/api/wx/login', {
         method: 'POST',
-        auth: false,
-        data: { name, code, clientId: getApp().globalData.clientId },
+        data: { name, clientId: getApp().globalData.clientId },
       });
 
       getApp().persist(d);

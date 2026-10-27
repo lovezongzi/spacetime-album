@@ -1,10 +1,12 @@
 /**
- * 选图 → 读 EXIF → 压缩 → base64。
- * 原图不做上传，只把 720px 的缩略图发给服务端。
+ * 选图 → 读 EXIF → 压缩 → 传到云存储。
+ *
+ * 关键点：
+ * - sizeType 必须是 original，compressed 会把 EXIF 洗掉，日期就拿不到了
+ * - 必须在压缩之前读 EXIF（压缩后的文件已经不含拍摄信息）
+ * - 只上传 720px 的缩略图，原图不出手机
  */
 const { readMeta } = require('./exif');
-
-const MAX_B64 = 820000; // 单张 base64 上限，超过就跳过（服务端同样有长度限制）
 
 function pickImages(count) {
   return new Promise((resolve, reject) => {
@@ -12,7 +14,6 @@ function pickImages(count) {
       count: count || 9,
       mediaType: ['image'],
       sourceType: ['album', 'camera'],
-      // original 才会保留 EXIF，compressed 会把拍摄信息洗掉
       sizeType: ['original'],
       success: (res) => resolve((res.tempFiles || []).map((f) => f.tempFilePath)),
       fail: (e) => {
@@ -46,17 +47,31 @@ function readBase64(filePath) {
   });
 }
 
-function mimeOf(filePath) {
-  const ext = (filePath.split('.').pop() || 'jpg').toLowerCase();
-  if (ext === 'png') return 'image/png';
-  if (ext === 'webp') return 'image/webp';
-  if (ext === 'heic') return 'image/heic';
-  return 'image/jpeg';
+function extOf(filePath) {
+  const ext = (String(filePath).split('.').pop() || 'jpg').toLowerCase();
+  return ['jpg', 'jpeg', 'png', 'webp'].includes(ext) ? ext : 'jpg';
+}
+
+/** 传到云存储，拿到 cloud:// 的 fileID，后续 <image src> 可以直接用 */
+function uploadOne(filePath, seq) {
+  return new Promise((resolve, reject) => {
+    const cloudPath =
+      `photos/${Date.now().toString(36)}-${seq}-` +
+      `${Math.random().toString(36).slice(2, 8)}.${extOf(filePath)}`;
+
+    wx.cloud.uploadFile({
+      cloudPath,
+      filePath,
+      success: (r) => (r.fileID ? resolve(r.fileID) : reject(new Error('上传没有返回 fileID'))),
+      fail: (e) => reject(new Error(e.errMsg || '上传失败')),
+    });
+  });
 }
 
 /**
- * 逐张处理，串行执行避免内存峰值。
- * onProgress(done, total, label)
+ * 逐张处理，串行执行避免内存峰值和网络拥塞。
+ * onProgress(done, total)
+ * 返回的每一项带 fileId，直接交给 POST /api/photos。
  */
 async function buildPhotos(paths, onProgress) {
   const ok = [];
@@ -72,11 +87,7 @@ async function buildPhotos(paths, onProgress) {
         continue;
       }
       const small = await compress(p);
-      const b64 = await readBase64(small);
-      if (b64.length > MAX_B64) {
-        skipped.tooBig += 1;
-        continue;
-      }
+      const fileId = await uploadOne(small, i);
       ok.push({
         date: meta.date,
         time: meta.time || '',
@@ -84,7 +95,7 @@ async function buildPhotos(paths, onProgress) {
         lng: meta.lng,
         place: '',
         approx: !!meta.approx,
-        thumb: `data:${mimeOf(small)};base64,${b64}`,
+        fileId,
       });
     } catch (e) {
       skipped.failed += 1;
@@ -95,4 +106,4 @@ async function buildPhotos(paths, onProgress) {
   return { ok, skipped };
 }
 
-module.exports = { pickImages, compress, readBase64, buildPhotos, MAX_B64 };
+module.exports = { pickImages, compress, readBase64, uploadOne, buildPhotos };

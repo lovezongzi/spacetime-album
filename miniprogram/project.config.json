@@ -4,6 +4,7 @@
   "description": "时空相册 —— 两个陌生人交换同一天拍摄的照片",
   "compileType": "miniprogram",
   "miniprogramRoot": "./",
+  "cloudfunctionRoot": "cloudfunctions/",
   "libVersion": "latest",
   "setting": {
     "urlCheck": false,
