@@ -13,7 +13,7 @@
  * 身份从 `gh auth token` 拿，不落盘、不打印。
  */
 
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const API = 'https://api.github.com';
 const TOKEN = process.env.GH_TOKEN_FOR_API || readToken();
@@ -40,6 +40,12 @@ function git(args, opts = {}) {
 
 function gitText(args) {
   return git(args, { encoding: 'utf8' });
+}
+
+/** 本地有没有这个对象。用 spawnSync 静默判断，免得 git 往 stderr 吐 fatal */
+function hasObject(sha) {
+  const r = spawnSync('git', ['cat-file', '-e', sha], { stdio: 'ignore' });
+  return r.status === 0;
 }
 
 async function api(path, init = {}) {
@@ -211,11 +217,12 @@ async function main() {
 
   // 这些提交是 API 造的，本地没有对象，所以 refs/remotes 指不过去（git 会拒绝）。
   // 下一次运行靠 tree 对齐识别，不依赖本地跟踪引用，这里只是尽力而为。
-  try {
-    git(['cat-file', '-e', `${parentSha}^{commit}`]);
-    git(['update-ref', `refs/remotes/${remoteName}/${branch}`, parentSha]);
-  } catch {
-    /* 本地没有这个对象，正常 */
+  if (hasObject(parentSha)) {
+    try {
+      git(['update-ref', `refs/remotes/${remoteName}/${branch}`, parentSha]);
+    } catch {
+      /* 无所谓 */
+    }
   }
 
   console.log(`\n✓ 已推送 ${branch} → ${parentSha.slice(0, 7)}`);
