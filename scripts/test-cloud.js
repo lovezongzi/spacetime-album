@@ -187,14 +187,64 @@ async function call(openid, path, method, body) {
   r = await call(A, `/api/pairs/${pairId}/respond`, 'POST', { accept: true });
   check('发起人不能自己点同意（403）', r.code === 403, r);
 
-  section('14. 重置');
+  section('14. 动态照片字段');
+  r = await call(A, '/api/photos', 'POST', {
+    photos: [
+      {
+        date: '2025-06-01',
+        time: '18:20',
+        fileId: 'cloud://env/a.jpg',
+        motionFileId: 'cloud://env/a.mp4',
+        live: true,
+        kind: 'jpg',
+        make: 'Xiaomi',
+        model: 'XIAOMI 14',
+      },
+      {
+        date: '2026-01-14',
+        time: '13:26',
+        fileId: 'cloud://env/b.jpg',
+        live: true,
+        kind: 'jpg',
+        make: 'Apple',
+        model: 'iPhone 15 Pro',
+      },
+      {
+        // 这一条是脏数据：motion 不是云文件、kind 非法、机型超长
+        date: '2026-01-15',
+        time: '09:00',
+        fileId: 'cloud://env/c.jpg',
+        motionFileId: 'http://evil.example/x.mp4',
+        kind: '<script>',
+        make: 'x'.repeat(200),
+        model: 'y'.repeat(200),
+      },
+    ],
+  });
+  check('导入 3 张', r.data.added === 3, r.data);
+  check('统计到 1 张带动态', r.data.motion === 1, r.data.motion);
+
+  r = await call(A, '/api/photos', 'GET');
+  const withMotion = r.data.photos.filter((p) => p.motion);
+  check('只有云文件的 motion 被保留', withMotion.length === 1, withMotion.map((p) => p.motion));
+  check('motion 是可播的 cloud fileID', /^cloud:\/\//.test(withMotion[0].motion), withMotion[0].motion);
+
+  const cover = r.data.photos.find((p) => p.date === '2026-01-14');
+  check('实况封面 live=true 但没有 motion', cover.live === true && cover.motion === '', cover);
+
+  const dirty = r.data.photos.find((p) => p.date === '2026-01-15');
+  check('非法的 motion 被丢弃', dirty.motion === '', dirty.motion);
+  check('非法的 kind 被清空', dirty.kind === '', dirty.kind);
+  check('过长的机型被截断', dirty.make.length <= 24 && dirty.model.length <= 40, [dirty.make.length, dirty.model.length]);
+
+  section('15. 重置');
   r = await call(A, '/api/reset', 'POST', {});
   check('重置成功', r.code === 200, r);
   check('相册清空', r.data.stats.photos === 0, r.data.stats);
   const left = cloud.__mock.dump('pairs').filter((p) => p.a === A || p.b === A);
   check('配对记录也清掉了', left.length === 0, left.length);
 
-  section('15. 未知路由');
+  section('16. 未知路由');
   r = await call(A, '/api/nope', 'GET');
   check('返回 404', r.code === 404, r);
 

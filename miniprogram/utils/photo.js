@@ -1,18 +1,28 @@
+'use strict';
+
 /**
- * 选图 → 读 EXIF → 压缩 → 传到云存储。
+ * 选图 → 读元数据 → 出缩略图 → 切动态片段 → 传云存储。
  *
- * 关键点：
- * - sizeType 必须是 original，compressed 会把 EXIF 洗掉，日期就拿不到了
- * - 必须在压缩之前读 EXIF（压缩后的文件已经不含拍摄信息）
- * - 只上传 720px 的缩略图，原图不出手机
- * - iPhone 的照片默认是 HEIC：`<image>` 在 Android 上放不出来，所以要尽量转成 JPEG。
- *   先交给 wx.compressImage（原生、会处理方向），压完再嗅一下魔数；如果还是 HEIC，
- *   用离屏画布重画成 JPEG。两条都不行才退回原文件（至少在 iOS 上能显示）。
+ * ## 三条关键约束
+ * 1. `sizeType` 必须是 original。压缩会把 EXIF 洗掉，日期就没了；
+ *    对动态照片来说更致命 —— 微信一跳转码，尾部拼接的 MP4 直接消失。
+ * 2. 必须在压缩之前读元数据。压缩后的文件已经不含拍摄信息。
+ * 3. 缩略图只出 720px。原图不出手机，只有缩略图和动图那几秒会上去。
+ *
+ * ## 动态照片
+ * 安卓「动态照片」是一张 JPEG 尾部拼了段 MP4，切出来就能播，全自动。
+ * iPhone「实况」是主图 + 独立 MOV 两个文件，小程序 API 只给主图，
+ * 所以走 `pickLiveVideos` 让用户补选，再用 UUID 精确配对（见 matchVideos）。
  */
-const { readMeta } = require('./exif');
+const { readMeta, extractMotion, readRange } = require('./exif');
 
 /** 可能是 HEIC/HEIF 的品牌（iPhone 主品牌是 heic，兼容串里常带 mif1） */
 const HEIF_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'];
+
+/** 云存储单文件上限（免费版 50MB），留点余量 */
+const MOTION_LIMIT = 40 * 1024 * 1024;
+
+/* ------------------------------ 选择 ------------------------------ */
 
 function pickImages(count) {
   return new Promise((resolve, reject) => {
@@ -21,7 +31,15 @@ function pickImages(count) {
       mediaType: ['image'],
       sourceType: ['album', 'camera'],
       sizeType: ['original'],
-      success: (res) => resolve((res.tempFiles || []).map((f) => f.tempFilePath)),
+      success: (res) => {
+        const list = (res.tempFiles || []).map((f) => ({
+          path: f.tempFilePath,
+          size: f.size || 0,
+          // 某些基础库版本会顺带给出视频路径，能用就用，省一次补选
+          videoPath: f.videoPath || f.videoTempFilePath || '',
+        }));
+        resolve(list);
+      },
       fail: (e) => {
         if (/cancel/i.test(e.errMsg || '')) return resolve([]);
         reject(new Error(e.errMsg || '选择图片失败'));
@@ -30,26 +48,64 @@ function pickImages(count) {
   });
 }
 
-function compress(filePath) {
-  return new Promise((resolve) => {
-    wx.compressImage({
-      src: filePath,
-      quality: 62,
-      compressedWidth: 720,
-      success: (r) => resolve(r.tempFilePath || filePath),
-      fail: () => resolve(filePath),
+function pickVideos(count) {
+  return new Promise((resolve, reject) => {
+    wx.chooseMedia({
+      count: Math.min(count || 9, 9),
+      mediaType: ['video'],
+      sourceType: ['album'],
+      sizeType: ['original'], // 必须原片，转码会把实况 UUID 洗掉
+      maxDuration: 60,
+      success: (res) => resolve((res.tempFiles || []).map((f) => f.tempFilePath)),
+      fail: (e) => {
+        if (/cancel/i.test(e.errMsg || '')) return resolve([]);
+        reject(new Error(e.errMsg || '选择视频失败'));
+      },
     });
   });
 }
 
+/** 从聊天记录里选文件：实况的 MOV 走这条路最稳，因为它不在「视频」分类里 */
+function pickChatFiles(count) {
+  return new Promise((resolve) => {
+    wx.chooseMessageFile({
+      count: Math.min(count || 9, 9),
+      type: 'file',
+      extension: ['mov', 'MOV', 'mp4', 'MP4'],
+      success: (res) => resolve((res.tempFiles || []).map((f) => f.path || f.tempFilePath)),
+      fail: () => resolve([]),
+    });
+  });
+}
+
+/**
+ * 让用户选实况的动态部分，给两条路：
+ *   相册    —— 一部分机型（尤其安卓）在这里能直接选到那 3 秒
+ *   聊天文件 —— iPhone 的实况 MOV 在系统相册里没有独立条目，
+ *               但用「以文件发送」发到文件传输助手就会变成 HEIC + MOV 两个文件，
+ *               从小程序里选那个 MOV 一样能配对
+ */
+function pickLiveVideos(count) {
+  return new Promise((resolve) => {
+    wx.showActionSheet({
+      itemList: ['从相册的视频里选', '从聊天文件里选（先把实况发给文件传输助手）'],
+      success: (r) => {
+        resolve(r.tapIndex === 1 ? pickChatFiles(count) : pickVideos(count).catch(() => []));
+      },
+      fail: () => resolve([]),
+    });
+  });
+}
+
+/* ------------------------------ 格式 ------------------------------ */
+
 /** 读文件头若干字节，用来判断真实格式（扩展名不可信，临时文件常常没有后缀） */
 function readMagic(filePath, n) {
-  const size = n || 16;
   return new Promise((resolve) => {
     wx.getFileSystemManager().readFile({
       filePath,
       position: 0,
-      length: size,
+      length: n || 16,
       success: (res) => resolve(new DataView(res.data)),
       fail: () => resolve(null),
     });
@@ -76,12 +132,25 @@ function kindOf(view) {
   if (tag4(view, 4) === 'ftyp') {
     const brand = tag4(view, 8);
     if (HEIF_BRANDS.indexOf(brand) >= 0) return 'heic';
-    // 兼容品牌串里也可能出现 heic
     for (let i = 16; i + 4 <= view.byteLength; i += 4) {
       if (HEIF_BRANDS.indexOf(tag4(view, i)) >= 0) return 'heic';
     }
   }
   return '';
+}
+
+/* ------------------------------ 缩略图 ------------------------------ */
+
+function compress(filePath) {
+  return new Promise((resolve) => {
+    wx.compressImage({
+      src: filePath,
+      quality: 62,
+      compressedWidth: 720,
+      success: (r) => resolve(r.tempFilePath || filePath),
+      fail: () => resolve(filePath),
+    });
+  });
 }
 
 /**
@@ -152,6 +221,8 @@ async function toThumb(filePath) {
   return { path: thumb, kind: kind || 'jpg' };
 }
 
+/* ------------------------------ 上传 ------------------------------ */
+
 function uploadOne(filePath, seq, ext) {
   return new Promise((resolve, reject) => {
     const suffix = ext && ext !== 'heic' ? ext : 'jpg';
@@ -168,27 +239,147 @@ function uploadOne(filePath, seq, ext) {
   });
 }
 
+function uploadVideo(filePath, seq) {
+  return new Promise((resolve, reject) => {
+    const cloudPath =
+      `motion/${Date.now().toString(36)}-${seq}-` +
+      `${Math.random().toString(36).slice(2, 8)}.mp4`;
+
+    wx.cloud.uploadFile({
+      cloudPath,
+      filePath,
+      success: (r) => (r.fileId ? resolve(r.fileId) : reject(new Error('视频上传没有返回 fileID'))),
+      fail: (e) => reject(new Error(e.errMsg || '视频上传失败')),
+    });
+  });
+}
+
+/* ---------------------------- 实况视频配对 ---------------------------- */
+
+/**
+ * 从一段 MOV 里读实况配对标识。
+ *
+ * iPhone 把 UUID 写在 `com.apple.quicktime.content.identifier` 里，
+ * 和主图 MakerNotes 的 0x0011 是同一个值。所以乱序选也能精确配对。
+ * 读前 256KB 就够 —— iPhone 的 MOV 是流式封装，moov 在文件开头。
+ */
+async function readVideoId(filePath) {
+  try {
+    const buf = await readRange(filePath, 0, 256 * 1024);
+    const view = new DataView(buf);
+    const len = view.byteLength;
+    const end = len - 36;
+    for (let i = 0; i <= end; i++) {
+      // 快速跳过：UUID 第 9 个字符一定是 '-'
+      if (view.getUint8(i + 8) !== 0x2d) continue;
+      let ok = true;
+      for (let k = 0; k < 36; k++) {
+        const c = view.getUint8(i + k);
+        const dash = k === 8 || k === 13 || k === 18 || k === 23;
+        if (dash) {
+          if (c !== 0x2d) {
+            ok = false;
+            break;
+          }
+        } else if (
+          !(
+            (c >= 0x30 && c <= 0x39) ||
+            (c >= 0x41 && c <= 0x46) ||
+            (c >= 0x61 && c <= 0x66)
+          )
+        ) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        let s = '';
+        for (let k = 0; k < 36; k++) s += String.fromCharCode(view.getUint8(i + k));
+        return s.toUpperCase();
+      }
+    }
+    return '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * 把补选的视频分配到实况照片上。
+ * photos 是 buildPhotos 产出的、还没定稿的条目（需要 liveId）；
+ * 先按 UUID 精确配对，剩下的按顺序补给缺视频的那些。
+ */
+async function matchVideos(videoPaths, photos) {
+  const pending = photos.filter((p) => p.live && !p.motionFileId);
+  if (!pending.length || !videoPaths.length) return { matched: 0, leftover: videoPaths.length };
+
+  const ids = [];
+  for (let i = 0; i < videoPaths.length; i++) {
+    ids.push(await readVideoId(videoPaths[i]));
+  }
+
+  let matched = 0;
+  const usedVideo = {};
+  const leftoverVideos = [];
+
+  // 第一轮：UUID 精确配对
+  for (const p of pending) {
+    if (!p.liveId) continue;
+    const k = ids.indexOf(p.liveId);
+    if (k >= 0 && !usedVideo[k]) {
+      usedVideo[k] = true;
+      p.__videoPath = videoPaths[k];
+      matched += 1;
+    }
+  }
+
+  for (let i = 0; i < videoPaths.length; i++) {
+    if (!usedVideo[i]) leftoverVideos.push(videoPaths[i]);
+  }
+
+  // 第二轮：剩下的按顺序补给还缺视频的（用户按顺序选的场景）
+  for (const p of pending) {
+    if (p.__videoPath) continue;
+    const v = leftoverVideos.shift();
+    if (!v) break;
+    p.__videoPath = v;
+    matched += 1;
+  }
+
+  return { matched, leftover: leftoverVideos.length };
+}
+
+/* ------------------------------ 主流程 ------------------------------ */
+
 /**
  * 逐张处理，串行执行避免内存峰值和网络拥塞。
- * onProgress(done, total)
- * 返回的每一项带 fileId，直接交给 POST /api/photos。
+ *
+ * onProgress(done, total, note)
+ * 返回 { ok, skipped, lives }
+ *   ok     可直接交给 POST /api/photos
+ *   lives  其中属于「实况但还没视频」的条目，供上层引导补选
  */
 async function buildPhotos(paths, onProgress) {
   const ok = [];
   const skipped = { noExif: 0, tooBig: 0, failed: 0 };
+  const lives = [];
 
   for (let i = 0; i < paths.length; i++) {
-    const p = paths[i];
-    if (onProgress) onProgress(i, paths.length);
+    const item = paths[i];
+    const p = typeof item === 'string' ? item : item.path;
+    if (onProgress) onProgress(i, paths.length, '读取');
     try {
       const meta = await readMeta(p);
       if (!meta.date) {
+        // 没有拍摄时间就没法按「那一天」匹配，但实况信息仍值得记下来
         skipped.noExif += 1;
         continue;
       }
+
       const thumb = await toThumb(p);
       const fileId = await uploadOne(thumb.path, i, thumb.kind);
-      ok.push({
+
+      const entry = {
         date: meta.date,
         time: meta.time || '',
         lat: meta.lat,
@@ -196,23 +387,85 @@ async function buildPhotos(paths, onProgress) {
         place: '',
         approx: !!meta.approx,
         fileId,
-      });
+        kind: thumb.kind,
+        make: meta.make || '',
+        model: meta.model || '',
+        live: !!meta.liveId,
+        liveId: meta.liveId || '',
+        motionFileId: '',
+      };
+
+      /* 安卓动态照片：直接从文件里切出 MP4，全自动 */
+      if (meta.motion && meta.motion.length) {
+        if (meta.motion.length > MOTION_LIMIT) {
+          entry.motionSkipped = 'tooBig';
+        } else {
+          if (onProgress) onProgress(i, paths.length, '提取动态');
+          const mp4 = await extractMotion(p, meta.motion, `${Date.now()}-${i}`).catch(() => null);
+          if (mp4) {
+            entry.motionFileId = await uploadVideo(mp4, i).catch(() => '');
+          }
+        }
+        // 拿到视频就说明这张是动态照片，哪怕它没有苹果那套 UUID
+        if (entry.motionFileId) entry.live = true;
+      }
+
+      /* iPhone 实况：微信只给主图，先记下来，等补选视频 */
+      entry.__videoPath = (typeof item === 'object' && item.videoPath) || '';
+      if (entry.live && !entry.motionFileId) lives.push(entry);
+
+      ok.push(entry);
     } catch (e) {
       skipped.failed += 1;
     }
   }
 
-  if (onProgress) onProgress(paths.length, paths.length);
-  return { ok, skipped };
+  if (onProgress) onProgress(paths.length, paths.length, '完成');
+  return { ok, skipped, lives };
+}
+
+/** 把已经配好视频的实况条目补上 motionFileId */
+async function attachVideos(photos, onProgress) {
+  let done = 0;
+  const list = photos.filter((p) => p.__videoPath && !p.motionFileId);
+  for (const p of list) {
+    try {
+      const id = await uploadVideo(p.__videoPath, done);
+      p.motionFileId = id;
+    } catch (e) {
+      /* 单条失败不影响其他 */
+    }
+    done += 1;
+    if (onProgress) onProgress(done, list.length);
+  }
+  return done;
+}
+
+/** 提交给云函数前把内部字段摘掉 */
+function clean(photos) {
+  return photos.map((p) => {
+    const c = Object.assign({}, p);
+    delete c.__videoPath;
+    delete c.liveId; // UUID 不用上云，配对只在本地做
+    return c;
+  });
 }
 
 module.exports = {
   pickImages,
+  pickVideos,
+  pickChatFiles,
+  pickLiveVideos,
   compress,
   canvasToJpeg,
   kindOf,
   readMagic,
   toThumb,
   uploadOne,
+  uploadVideo,
+  readVideoId,
+  matchVideos,
   buildPhotos,
+  attachVideos,
+  clean,
 };

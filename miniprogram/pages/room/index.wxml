@@ -22,12 +22,22 @@
         <view class="col">
           <view class="lane-tag me">你</view>
           <view class="shots" wx:if="{{item.mine.length}}">
-            <view class="shot" wx:for="{{item.mine}}" wx:for-item="p" wx:key="id">
+            <view
+              class="shot"
+              wx:for="{{item.mine}}"
+              wx:for-item="p"
+              wx:key="id"
+              bindtap="openShot"
+              data-id="{{p.id}}"
+              data-side="mine"
+            >
               <image wx:if="{{!p.svg}}" class="shot-img" src="{{p.thumb}}" mode="aspectFill" />
               <view wx:else class="shot-img sky-ph g{{p.grad}}">
                 <view class="sky-sun" style="left:{{p.sunX}}%;top:{{p.sunY}}%"></view>
               </view>
               <view class="shot-time mono" wx:if="{{p.time}}">{{p.time}}</view>
+              <view class="shot-live" wx:if="{{p.motion}}">动态</view>
+              <view class="shot-live ghost" wx:elif="{{p.live}}">实况</view>
             </view>
           </view>
           <view class="locked quiet" wx:else>
@@ -39,12 +49,22 @@
         <view class="col">
           <view class="lane-tag them">{{pair.partner.name}}</view>
           <view class="shots" wx:if="{{item.canSee}}">
-            <view class="shot" wx:for="{{item.theirs}}" wx:for-item="p" wx:key="id">
+            <view
+              class="shot"
+              wx:for="{{item.theirs}}"
+              wx:for-item="p"
+              wx:key="id"
+              bindtap="openShot"
+              data-id="{{p.id}}"
+              data-side="theirs"
+            >
               <image wx:if="{{!p.svg}}" class="shot-img" src="{{p.thumb}}" mode="aspectFill" />
               <view wx:else class="shot-img sky-ph g{{p.grad}}">
                 <view class="sky-sun" style="left:{{p.sunX}}%;top:{{p.sunY}}%"></view>
               </view>
               <view class="shot-time mono" wx:if="{{p.time}}">{{p.time}}</view>
+              <view class="shot-live" wx:if="{{p.motion}}">动态</view>
+              <view class="shot-live ghost" wx:elif="{{p.live}}">实况</view>
             </view>
           </view>
           <view class="locked" wx:else>
@@ -74,4 +94,37 @@
 
 <view class="dock whisper" wx:if="{{pair && pair.canSee}}">
   <view class="muted">你们彼此都看见了。</view>
+</view>
+
+<!-- 单张预览：动态直接播，静态可缩放 -->
+<view class="viewer" wx:if="{{viewing}}" bindtap="closeShot">
+  <view class="viewer-stage" catchtap="noop">
+    <video
+      wx:if="{{viewing.hasMotion}}"
+      class="viewer-media"
+      src="{{viewing.motion}}"
+      object-fit="contain"
+      autoplay
+      loop
+      muted
+      controls="{{false}}"
+      show-center-play-btn="{{false}}"
+      show-fullscreen-btn="{{false}}"
+      show-play-btn="{{false}}"
+    />
+    <image
+      wx:elif="{{!viewing.svg}}"
+      class="viewer-media"
+      src="{{viewing.thumb}}"
+      mode="aspectFit"
+      bindtap="previewStill"
+    />
+    <view wx:else class="viewer-sky sky-ph g{{viewing.grad}}">
+      <view class="sky-sun" style="left:{{viewing.sunX}}%;top:{{viewing.sunY}}%"></view>
+    </view>
+  </view>
+  <view class="viewer-cap mono">{{viewing.time || '时间未知'}} · {{viewing.datePretty}}</view>
+  <view class="viewer-note" wx:if="{{viewing.hasMotion}}">动态照片 · 画面在轻轻流动</view>
+  <view class="viewer-note" wx:elif="{{viewing.live}}">实况的封面 · 动态部分微信没开放给小程序</view>
+  <view class="viewer-note dim">点空白处关闭</view>
 </view>

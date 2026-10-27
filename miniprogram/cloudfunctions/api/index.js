@@ -160,6 +160,12 @@ const slim = (p) => ({
   thumb: p.fileId || '',
   // 小程序 <image> 不支持 svg，演示照片改走 WXSS 渐变
   svg: !!p.svg,
+  // 动态照片：有 motion 就能播；live 表示这是实况/动态的封面
+  motion: p.motionFileId || '',
+  live: !!p.live,
+  kind: p.kind || '',
+  make: p.make || '',
+  model: p.model || '',
 });
 
 async function photosOf(userId, date) {
@@ -325,11 +331,15 @@ async function route(path, method, body, openid) {
     if (!list.length) return ok({ added: 0, stats: await albumStats(openid) });
 
     const docs = [];
+    let lives = 0;
     for (const raw of list) {
       const date = String(raw.date || '');
       if (!isDate(date)) continue;
       const fileId = String(raw.fileId || '');
       if (!/^cloud:\/\//.test(fileId) || fileId.length > 400) continue;
+      const motion = String(raw.motionFileId || '');
+      const hasMotion = /^cloud:\/\//.test(motion) && motion.length <= 400;
+      if (hasMotion) lives += 1;
       docs.push({
         _id: newId('ph'),
         userId: openid,
@@ -339,6 +349,12 @@ async function route(path, method, body, openid) {
         lat: typeof raw.lat === 'number' ? raw.lat : null,
         lng: typeof raw.lng === 'number' ? raw.lng : null,
         fileId,
+        // 动态照片：切出来的那段 MP4 的 fileID，空表示只有封面
+        motionFileId: hasMotion ? motion : '',
+        live: !!raw.live || hasMotion,
+        kind: ['jpg', 'png', 'webp', 'heic'].indexOf(String(raw.kind)) >= 0 ? raw.kind : '',
+        make: String(raw.make || '').slice(0, 24),
+        model: String(raw.model || '').slice(0, 40),
         svg: false,
         approx: !!raw.approx,
         source: 'user',
@@ -354,12 +370,17 @@ async function route(path, method, body, openid) {
         })
       );
     }
-    return ok({ added: docs.length, stats: await albumStats(openid) });
+    return ok({ added: docs.length, motion: lives, stats: await albumStats(openid) });
   }
 
   if (method === 'DELETE' && seg[0] === 'photos' && seg[1]) {
+    const one = await db.collection('photos').where({ _id: seg[1], userId: openid }).get();
+    const row = one.data && one.data[0];
     const r = await db.collection('photos').where({ _id: seg[1], userId: openid }).remove();
     if (!r.stats || !r.stats.removed) return fail(404, '照片不存在');
+    // 顺带清掉云存储里的缩略图和动态片段，别留垃圾
+    const files = [row && row.fileId, row && row.motionFileId].filter((f) => /^cloud:\/\//.test(f || ''));
+    if (files.length) await cloud.deleteFile({ fileList: files }).catch(() => null);
     return ok({ ok: true, stats: await albumStats(openid) });
   }
 

@@ -1,277 +1,564 @@
-#!/usr/bin/env node
-/**
- * EXIF 解析器的本地测试（不需要小程序环境）。
- *
- * 三组用例：
- *   1. 真实 HEIC（iPhone 默认格式）—— IMG_5100.HEIC
- *   2. 自造 HEIC —— 不依赖任何外部文件，专门覆盖「Exif 项在头部之外要补读」
- *   3. 不该误判的输入 —— PNG / 垃圾数据 / 空文件 / 只有 ftyp 的 HEIC
- *
- * 用法：
- *   node scripts/test-exif.js [某个 .HEIC]
- * 不传路径时用内置的 Downloads/IMG_5100.HEIC；文件不在也照样跑第 2、3 组。
- */
+'use strict';
 
+/**
+ * 元数据解析器测试。
+ *
+ * 用法：node scripts/test-exif.js
+ *
+ * 覆盖三部分：
+ *   1. 真实文件（iPhone HEIC / SONY JPEG / 实况主图）
+ *   2. 各家写法的差异（日期格式、GPS 写法、容器）
+ *   3. 动态照片的三种识别路径 + 误判防护
+ *
+ * 除了真实文件，样本都是现场按规范拼的 —— 这样能精确控制「哪一段在哪」，
+ * 也才能在改动解析器时立刻知道有没有踩坏原本对的分支。
+ */
 const fs = require('fs');
 const path = require('path');
-
 const exif = require('../miniprogram/utils/exif.js');
+const photo = require('../miniprogram/utils/photo.js');
 
 let pass = 0;
-const failures = [];
+let failed = 0;
 
-function ok(label, cond, detail) {
+function ok(name, cond, detail) {
   if (cond) {
     pass += 1;
-    console.log(`  ✓ ${label}`);
+    console.log(`  ✓ ${name}`);
   } else {
-    failures.push(label);
-    console.log(`  ✗ ${label}  ${detail === undefined ? '' : JSON.stringify(detail)}`);
+    failed += 1;
+    console.log(`  ✗ ${name}`);
+    if (detail !== undefined) console.log(`      → ${JSON.stringify(detail)}`);
   }
 }
 
 function toView(buf) {
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length);
 }
 
-/* ------------------------- 自造 HEIC 的小工具 ------------------------- */
-
-/** 一个 ISO BMFF 盒：4 字节长度 + 4 字节类型 + 负载 */
-function box(type, payload) {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(8 + payload.length, 0);
-  head.write(type, 4, 'binary');
-  return Buffer.concat([head, payload]);
+function probe(buf, fileSize) {
+  return exif.parse(toView(buf), 0, fileSize === undefined ? buf.length : fileSize);
 }
 
-function u16(n) {
-  const b = Buffer.alloc(2);
-  b.writeUInt16BE(n, 0);
-  return b;
-}
+/* ------------------------------ 构造器 ------------------------------ */
 
-function u32(n) {
-  const b = Buffer.alloc(4);
-  b.writeUInt32BE(n, 0);
-  return b;
-}
+const TYPE_W = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1 };
 
-/** 最小的 TIFF：IFD0 → Exif 子 IFD → DateTimeOriginal。
- *  用大端（MM），因为下面的 u16/u32 都是 writeUInt*BE —— 别声明 II 却写大端数。 */
-function buildTiff(dateStr) {
-  const str = Buffer.from(dateStr + '\0', 'binary');
-  const IFD0 = 8;
-  const EXIF_IFD = IFD0 + 2 + 12 + 4; // 计数 + 1 条记录 + 下个 IFD 指针
-  const DATA = EXIF_IFD + 2 + 12 + 4;
-
-  const header = Buffer.concat([
-    Buffer.from('MM', 'binary'),
-    u16(0x002a),
-    u32(IFD0),
-  ]);
-
-  const ifd0 = Buffer.concat([
-    u16(1),
-    // tag 0x8769 = Exif 子 IFD 指针，type 4 (LONG)，count 1
-    u16(0x8769), u16(4), u32(1), u32(EXIF_IFD),
-    u32(0), // 没有下一个 IFD
-  ]);
-
-  const exifIfd = Buffer.concat([
-    u16(1),
-    // tag 0x9003 = DateTimeOriginal，type 2 (ASCII)
-    u16(0x9003), u16(2), u32(str.length), u32(DATA),
-    u32(0),
-  ]);
-
-  return Buffer.concat([header, ifd0, exifIfd, str]);
+function ascii(s) {
+  return Buffer.from(s + '\0', 'latin1');
 }
 
 /**
- * 造一个 HEIC。exifOffset 是 Exif item 在**这个 buffer 内**的偏移，
- * base 是这个 buffer 在文件里的起始偏移 —— iloc 里写的是文件绝对偏移（base + exifOffset）。
- * totalSize 决定文件有多长（可以故意让它短于 exifOffset，模拟「在头部之外」）。
+ * 拼一个 TIFF。参数：
+ *   date / dateIn('exif'|'ifd0') / dateTag
+ *   tz / make / model / makerNotes(Buffer)
+ *   gps: { lat: number[], lng: number[], latRef, lngRef, omitRef }
+ *   little: 用小端
  */
-function buildHeic(exifOffset, totalSize, base) {
-  const at = base || 0;
-  const tiff = buildTiff('2026:10:27 07:33:29');
+function buildTiff(o) {
+  o = o || {};
+  const little = !!o.little;
+  const w16 = (v) => {
+    const b = Buffer.alloc(2);
+    little ? b.writeUInt16LE(v) : b.writeUInt16BE(v);
+    return b;
+  };
+  const w32 = (v) => {
+    const b = Buffer.alloc(4);
+    little ? b.writeUInt32LE(v) : b.writeUInt32BE(v);
+    return b;
+  };
 
-  const iinf = box(
-    'iinf',
-    Buffer.concat([
-      u32(0), // version 0 + flags
-      u16(1), // 1 个条目
-      box(
-        'infe',
-        Buffer.concat([
-          u32(0x02000000), // version 2
-          u16(1), // item_ID
-          u16(0), // protection index
-          Buffer.from('Exif', 'binary'),
-          Buffer.from([0]), // 空名字
-        ]),
-      ),
-    ]),
-  );
+  const ifd0 = [];
+  const exifIfd = [];
+  const gpsIfd = [];
 
-  const iloc = box(
-    'iloc',
-    Buffer.concat([
-      u32(0), // version 0 + flags
-      Buffer.from([0x44, 0x00]), // offset_size=4, length_size=4, base_offset_size=0
-      u16(1), // 1 个条目
-      u16(1), // item_ID
-      u16(0), // data_reference_index
-      u16(1), // 1 个 extent
-      u32(at + exifOffset), // 文件绝对偏移
-      u32(4096), // 长度足够覆盖 TIFF
-    ]),
-  );
+  if (o.make) ifd0.push({ tag: 0x010f, type: 2, data: ascii(o.make) });
+  if (o.model) ifd0.push({ tag: 0x0110, type: 2, data: ascii(o.model) });
 
-  const meta = box('meta', Buffer.concat([u32(0), iinf, iloc]));
-  const ftyp = box('ftyp', Buffer.from('heic\x00\x00\x00\x00mif1', 'binary'));
-
-  const head = Buffer.concat([ftyp, meta]);
-  const exifBlock = Buffer.concat([u32(0), tiff]); // 4 字节 TIFF 相对偏移 = 0
-
-  const need = Math.max(totalSize, head.length, exifOffset + exifBlock.length);
-  const buf = Buffer.alloc(need);
-  head.copy(buf, 0);
-  if (exifOffset + exifBlock.length <= need) exifBlock.copy(buf, exifOffset);
-  return buf;
-}
-
-/** 在真实文件里找一个「包含 meta、但不含 Exif 项」的切片，用于验证补读 */
-function realNeed(buf) {
-  for (let cut = 8192; cut < Math.min(buf.length, 256 * 1024); cut += 512) {
-    const r = exif.parse(toView(buf.subarray(0, cut)), 0);
-    if (r && r.__need) return r.__need;
+  if (o.date) {
+    if (o.dateIn === 'ifd0') ifd0.push({ tag: 0x0132, type: 2, data: ascii(o.date) });
+    else exifIfd.push({ tag: o.dateTag || 0x9003, type: 2, data: ascii(o.date) });
   }
-  return null;
+  if (o.tz) exifIfd.push({ tag: 0x9011, type: 2, data: ascii(o.tz) });
+  if (o.makerNotes) exifIfd.push({ tag: 0x927c, type: 7, data: o.makerNotes });
+
+  if (o.gps) {
+    const rat = (vals) => {
+      const b = Buffer.alloc(vals.length * 8);
+      vals.forEach((v, i) => {
+        // 真实 EXIF 里负号由 Ref 表达，度分秒本身是绝对值
+        const num = Math.round(Math.abs(v) * 10000);
+        little ? b.writeUInt32LE(num, i * 8) : b.writeUInt32BE(num, i * 8);
+        little ? b.writeUInt32LE(10000, i * 8 + 4) : b.writeUInt32BE(10000, i * 8 + 4);
+      });
+      return b;
+    };
+    if (!o.gps.omitRef) {
+      gpsIfd.push({ tag: 0x0001, type: 2, data: ascii(o.gps.latRef || 'N') });
+    }
+    gpsIfd.push({ tag: 0x0002, type: 5, data: rat(o.gps.lat) });
+    if (!o.gps.omitRef) {
+      gpsIfd.push({ tag: 0x0003, type: 2, data: ascii(o.gps.lngRef || 'E') });
+    }
+    gpsIfd.push({ tag: 0x0004, type: 5, data: rat(o.gps.lng) });
+  }
+
+  let pExif = null;
+  let pGps = null;
+  if (exifIfd.length) {
+    pExif = { tag: 0x8769, type: 4, data: Buffer.alloc(4) };
+    ifd0.push(pExif);
+  }
+  if (gpsIfd.length) {
+    pGps = { tag: 0x8825, type: 4, data: Buffer.alloc(4) };
+    ifd0.push(pGps);
+  }
+
+  const ifd0At = 8;
+  const ifd0Size = 2 + ifd0.length * 12 + 4;
+  const exifAt = ifd0At + ifd0Size;
+  const exifSize = exifIfd.length ? 2 + exifIfd.length * 12 + 4 : 0;
+  const gpsAt = exifAt + exifSize;
+  const gpsSize = gpsIfd.length ? 2 + gpsIfd.length * 12 + 4 : 0;
+
+  if (pExif) pExif.data = w32(exifAt);
+  if (pGps) pGps.data = w32(gpsAt);
+
+  let dataAt = gpsAt + gpsSize;
+
+  const writeIfd = (list) => {
+    if (!list.length) return { buf: Buffer.alloc(0), data: Buffer.alloc(0) };
+    const head = [w16(list.length)];
+    const blobs = [];
+    for (const e of list) {
+      head.push(w16(e.tag));
+      head.push(w16(e.type));
+      head.push(w32(e.data.length / (TYPE_W[e.type] || 1)));
+      if (e.data.length <= 4) {
+        const pad = Buffer.alloc(4);
+        e.data.copy(pad, 0, 0, Math.min(4, e.data.length));
+        head.push(pad);
+      } else {
+        head.push(w32(dataAt));
+        blobs.push(e.data);
+        dataAt += e.data.length;
+      }
+    }
+    head.push(w32(0));
+    return { buf: Buffer.concat(head), data: Buffer.concat(blobs) };
+  };
+
+  const a = writeIfd(ifd0);
+  const b = writeIfd(exifIfd);
+  const c = writeIfd(gpsIfd);
+
+  const header = Buffer.concat([
+    Buffer.from(little ? 'II' : 'MM', 'latin1'),
+    w16(0x2a),
+    w32(ifd0At),
+  ]);
+
+  return Buffer.concat([header, a.buf, b.buf, c.buf, a.data, b.data, c.data]);
 }
 
-/* ------------------------------- 跑测试 ------------------------------- */
+function seg(marker, body) {
+  const head = Buffer.alloc(4);
+  head[0] = 0xff;
+  head[1] = marker;
+  head.writeUInt16BE(body.length + 2, 2);
+  return Buffer.concat([head, body]);
+}
 
-console.log('EXIF 解析器测试\n');
-
-const HEIC = process.argv[2] || '/Users/zongzi/Downloads/IMG_5100.HEIC';
-
-/* ---- 1. 真实 HEIC ---- */
-if (!fs.existsSync(HEIC)) {
-  console.log(`（跳过真实文件：找不到 ${HEIC}）`);
-} else {
-  const buf = fs.readFileSync(HEIC);
-  const head = buf.subarray(0, 256 * 1024);
-
-  console.log(`真实文件：${path.basename(HEIC)}   ${(buf.length / 1048576).toFixed(1)} MB`);
-
-  const r = exif.parse(toView(head), 0);
-  ok('识别出 HEIC 并解析到拍摄时间', r && !!r.date, r);
-  if (r && r.date) {
-    console.log(`     → ${r.date} ${r.time}   GPS ${r.lat}, ${r.lng}`);
-    ok('日期形如 YYYY-MM-DD', /^\d{4}-\d{2}-\d{2}$/.test(r.date), r.date);
-    ok('时间形如 HH:MM', /^\d{2}:\d{2}$/.test(r.time), r.time);
-    ok(
-      '坐标在合法范围',
-      r.lat === null || (Math.abs(r.lat) <= 90 && Math.abs(r.lng) <= 180),
-      r,
+/** 拼一张 JPEG，尾部可选拼一段 MP4 */
+function buildJpeg(tiff, o) {
+  o = o || {};
+  const parts = [Buffer.from([0xff, 0xd8])];
+  if (tiff) {
+    parts.push(seg(0xe1, Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff])));
+  }
+  if (o.xmp) {
+    parts.push(
+      seg(
+        0xe1,
+        Buffer.concat([
+          Buffer.from('http://ns.adobe.com/xap/1.0/\0', 'latin1'),
+          Buffer.from(o.xmp, 'utf8'),
+        ])
+      )
     );
   }
-
-  const need = realNeed(buf);
-  if (need) {
-    const chunk = buf.subarray(need.offset, need.offset + need.length);
-    const r2 = exif.parseExifBlock(new DataView(toView(chunk)), 0);
-    ok('头部截断时按偏移补读，得到同一个日期', r2 && r2.date === (r && r.date), r2);
-  } else {
-    ok('头部截断时按偏移补读，得到同一个日期', false, '没有找到触发补读的切片');
-  }
+  // SOS + 一小段假图像数据 + EOI
+  parts.push(Buffer.from([0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0, 0]));
+  parts.push(Buffer.alloc(o.pixels || 64, 0x55));
+  parts.push(Buffer.from([0xff, 0xd9]));
+  if (o.mp4) parts.push(o.mp4);
+  return Buffer.concat(parts);
 }
 
-/* ---- 2. 自造 HEIC ---- */
-console.log('\n自造 HEIC：');
-{
-  const full = buildHeic(5000, 6000);
-  const r = exif.parse(toView(full), 0);
-  ok('完整文件能解析', r && r.date === '2026-10-27' && r.time === '07:33', r);
+/** 一段最小 MP4：ftyp(32) + moov(含 payload) */
+function buildMp4(payload) {
+  const size = payload || 8192;
+  const ftyp = Buffer.alloc(32);
+  ftyp.writeUInt32BE(32, 0);
+  ftyp.write('ftyp', 4, 'latin1');
+  ftyp.write('mp42', 8, 'latin1');
+  ftyp.writeUInt32BE(0, 12);
+  ftyp.write('mp42', 16, 'latin1');
+  ftyp.write('isom', 20, 'latin1');
 
-  // 只给前 2000 字节：meta 在、Exif 项在 5000
-  const cut = exif.parse(toView(full.subarray(0, 2000)), 0);
-  ok('Exif 项在头部之外时返回 __need', cut && cut.__need && cut.__need.offset === 5000, cut);
+  const body = Buffer.alloc(size, 0x22);
+  const moov = Buffer.alloc(16);
+  moov.writeUInt32BE(16 + size, 0);
+  moov.write('moov', 4, 'latin1');
 
-  if (cut && cut.__need) {
-    const chunk = full.subarray(cut.__need.offset, cut.__need.offset + cut.__need.length);
-    const r2 = exif.parseExifBlock(new DataView(toView(chunk)), 0);
-    ok('按 __need 补读后解析成功', r2 && r2.date === '2026-10-27', r2);
-  }
-
-  // base 偏移：这个 buffer 在文件里从 1000 开始，所以 iloc 里的绝对偏移是 1000+4000
-  const shifted = Buffer.concat([Buffer.alloc(1000, 0), buildHeic(4000, 5000, 1000)]);
-  const r3 = exif.parse(toView(shifted.subarray(1000)), 1000);
-  ok('带 base 偏移时仍能定位 Exif', r3 && r3.date === '2026-10-27', r3);
+  return Buffer.concat([ftyp, moov, body]);
 }
 
-/* ---- 3. 不该误判的输入 ---- */
-console.log('\n不该误判的输入：');
-{
-  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
-  ok('PNG 返回 null（截图不会有 EXIF）', exif.parse(toView(png), 0) === null);
-
-  ok('垃圾数据返回 null', exif.parse(toView(Buffer.alloc(64, 0x41)), 0) === null);
-  ok('空数据返回 null', exif.parse(toView(Buffer.alloc(0)), 0) === null);
-
-  const ftypOnly = box('ftyp', Buffer.from('heic\x00\x00\x00\x00mif1', 'binary'));
-  ok('只有 ftyp 的 HEIC 返回 null 而不是抛错', exif.parse(toView(ftypOnly), 0) === null);
-
-  // 声明了 Exif 项但偏移越界：不能崩，应回 null 或 __need
-  const broken = buildHeic(9_000_000, 2000);
-  const rb = exif.parse(toView(broken.subarray(0, 2000)), 0);
-  ok('Exif 偏移越界时安全返回', rb === null || (rb && rb.__need), rb);
-}
-
-/* ---- 4. 格式嗅探（决定上传扩展名与要不要转 JPEG） ---- */
-console.log('\n格式嗅探：');
-{
-  const photo = require('../miniprogram/utils/photo.js');
-
-  const heic = buildHeic(5000, 6000);
-  ok('认出 HEIC', photo.kindOf(new DataView(toView(heic.subarray(0, 32)))) === 'heic');
-
-  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20)]);
-  ok('认出 JPEG', photo.kindOf(new DataView(toView(jpeg))) === 'jpg');
-
-  const png = Buffer.concat([
-    Buffer.from([0x89]),
-    Buffer.from('PNG\r\n\x1a\n', 'binary'),
-    Buffer.alloc(20),
+function buildPng(tiff) {
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const chunk = (type, body) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(body.length, 0);
+    head.write(type, 4, 'latin1');
+    return Buffer.concat([head, body, Buffer.alloc(4)]); // CRC 不校验，填零
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(100, 0);
+  ihdr.writeUInt32BE(100, 4);
+  return Buffer.concat([
+    sig,
+    chunk('IHDR', ihdr),
+    chunk('eXIf', tiff),
+    chunk('IEND', Buffer.alloc(0)),
   ]);
-  ok('认出 PNG（签名字节要照真实的来）', photo.kindOf(new DataView(toView(png))) === 'png');
-
-  const webp = Buffer.concat([
-    Buffer.from('RIFF', 'binary'),
-    Buffer.alloc(4),
-    Buffer.from('WEBP', 'binary'),
-    Buffer.alloc(8),
-  ]);
-  ok('认出 WebP', photo.kindOf(new DataView(toView(webp))) === 'webp');
-
-  ok('认不出来时返回空（调用方退回 jpg）', photo.kindOf(new DataView(toView(Buffer.alloc(32)))) === '');
-
-  if (fs.existsSync(HEIC)) {
-    const head = fs.readFileSync(HEIC).subarray(0, 32);
-    ok('真实 HEIC 文件头也认得', photo.kindOf(new DataView(toView(head))) === 'heic');
-  }
-
-  const realPng = path.join(__dirname, '..', 'docs', 'icon', 'icon-192.png');
-  if (fs.existsSync(realPng)) {
-    const head = fs.readFileSync(realPng).subarray(0, 32);
-    ok('真实 PNG 图标认得出', photo.kindOf(new DataView(toView(head))) === 'png');
-  }
 }
 
-/* ------------------------------- 汇总 ------------------------------- */
-console.log(`\n${pass} 项通过${failures.length ? `，${failures.length} 项失败` : '，全部通过'}`);
-if (failures.length) {
-  console.log('失败：' + failures.join('、'));
+function buildWebp(tiff) {
+  const chunk = (type, body) => {
+    const head = Buffer.alloc(8);
+    head.write(type, 0, 'latin1');
+    head.writeUInt32LE(body.length, 4);
+    const pad = body.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0);
+    return Buffer.concat([head, body, pad]);
+  };
+  const vp8 = chunk('VP8 ', Buffer.alloc(16, 0x33));
+  const ex = chunk('EXIF', Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]));
+  const body = Buffer.concat([Buffer.from('WEBP', 'latin1'), vp8, ex]);
+  const head = Buffer.alloc(8);
+  head.write('RIFF', 0, 'latin1');
+  head.writeUInt32LE(body.length, 4);
+  return Buffer.concat([head, body]);
+}
+
+/** Apple MakerNotes：tag 指定，值是 UUID 或任意 ASCII */
+function appleNotes(tag, value) {
+  const v = ascii(value);
+  const head = Buffer.concat([
+    Buffer.from('Apple iOS\0', 'latin1'),
+    Buffer.from([0x00, 0x01]),
+    Buffer.from('MM', 'latin1'),
+  ]);
+  const count = 1;
+  const ifdSize = 2 + count * 12 + 4;
+  const valueAt = head.length + ifdSize; // 偏移基准是 MakerNotes 起点
+
+  const ifd = Buffer.alloc(ifdSize);
+  let p = 0;
+  ifd.writeUInt16BE(count, p);
+  p += 2;
+  ifd.writeUInt16BE(tag, p);
+  p += 2;
+  ifd.writeUInt16BE(2, p); // ASCII
+  p += 2;
+  ifd.writeUInt32BE(v.length, p);
+  p += 4;
+  ifd.writeUInt32BE(valueAt, p);
+  p += 4;
+  ifd.writeUInt32BE(0, p);
+
+  return Buffer.concat([head, ifd, v]);
+}
+
+const XMP_OLD = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:Camera="http://ns.google.com/photos/1.0/camera/"
+    xmlns:GCamera="http://ns.google.com/photos/1.0/camera/">
+   <GCamera:MicroVideo>1</GCamera:MicroVideo>
+   <GCamera:MicroVideoVersion>1</GCamera:MicroVideoVersion>
+   <GCamera:MicroVideoOffset>__OFFSET__</GCamera:MicroVideoOffset>
+   <GCamera:MicroVideoPresentationTimestampUs>333227</GCamera:MicroVideoPresentationTimestampUs>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`;
+
+const XMP_NEW = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:Camera="http://ns.google.com/photos/1.0/camera/"
+    xmlns:Container="http://ns.google.com/photos/1.0/container/">
+   <Camera:MotionPhoto>1</Camera:MotionPhoto>
+   <Camera:MotionPhotoVersion>1</Camera:MotionPhotoVersion>
+   <Camera:MotionPhotoPresentationTimestampUs>1500000</Camera:MotionPhotoPresentationTimestampUs>
+   <Container:Directory>
+    <rdf:Seq>
+     <rdf:li rdf:parseType="Resource">
+      <Container:Item Container:Mime="image/jpeg" Container:Semantic="Primary" Container:Length="4096"/>
+     </rdf:li>
+     <rdf:li rdf:parseType="Resource">
+      <Container:Item Container:Mime="video/mp4" Container:Semantic="MotionPhoto" Container:Length="__OFFSET__"/>
+     </rdf:li>
+    </rdf:Seq>
+   </Container:Directory>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`;
+
+/* ------------------------------ 一、真实文件 ------------------------------ */
+
+console.log('\n[1] 真实文件');
+const D = '/Users/zongzi/Downloads';
+
+if (fs.existsSync(`${D}/IMG_5100.HEIC`)) {
+  const buf = fs.readFileSync(`${D}/IMG_5100.HEIC`);
+  const r = probe(buf.subarray(0, 256 * 1024), buf.length);
+  ok('iPhone HEIC 读出日期', r && r.date === '2026-10-27', r && r.date);
+  ok('iPhone HEIC 读出时刻', r && r.time === '07:33', r && r.time);
+  ok('iPhone HEIC 读出时区', r && r.tz === '+08:00', r && r.tz);
+  ok('iPhone HEIC 读出机型', r && /iPhone/.test(r.model), r && r.model);
+  ok(
+    'iPhone HEIC 读出坐标（西安）',
+    r && Math.abs(r.lat - 34.2386) < 0.01 && Math.abs(r.lng - 108.8818) < 0.01,
+    r && [r.lat, r.lng]
+  );
+  ok('iPhone HEIC 认出实况标识', r && /^[0-9A-F]{8}-/.test(r.liveId), r && r.liveId);
+  ok('HEIC 不误报内嵌视频', r && r.motion === null, r && r.motion);
+}
+
+if (fs.existsSync(`${D}/IMG_7026.JPG`)) {
+  const buf = fs.readFileSync(`${D}/IMG_7026.JPG`);
+  const r = probe(buf.subarray(0, 256 * 1024), buf.length);
+  ok('相机 JPEG 读出日期', r && r.date === '2026-02-02', r && r.date);
+  ok('相机 JPEG 读出厂商', r && r.make === 'SONY', r && r.make);
+  ok('相机照片不该有实况标识', r && r.liveId === '', r && r.liveId);
+}
+
+if (fs.existsSync(`${D}/livePhoto_1768368402.JPG`)) {
+  const buf = fs.readFileSync(`${D}/livePhoto_1768368402.JPG`);
+  const r = probe(buf.subarray(0, 256 * 1024), buf.length);
+  ok('实况主图 JPG 认出标识', r && r.liveId === 'B693C1E7-EA67-45EE-AAF7-302FBC95AA7B', r && r.liveId);
+}
+
+/* ------------------------------ 二、日期写法 ------------------------------ */
+
+console.log('\n[2] 日期写法（各家 ROM 差异）');
+const dateCases = [
+  ['EXIF 标准', '2026:10:27 07:33:29', '2026-10-27', '07:33'],
+  ['短横线分隔', '2026-10-27 07:33:29', '2026-10-27', '07:33'],
+  ['缺秒', '2026:10:27 07:33', '2026-10-27', '07:33'],
+  ['ISO 带时区', '2026-10-27T07:33:29+08:00', '2026-10-27', '07:33'],
+  ['ISO 带 Z', '2026-10-27T07:33:29Z', '2026-10-27', '07:33'],
+  ['紧凑式', '20261027_073329', '2026-10-27', '07:33'],
+  ['只有日期', '2026:10:27', '2026-10-27', ''],
+  ['带毫秒', '2026-10-27 07:33:29.512', '2026-10-27', '07:33'],
+];
+for (const [label, raw, wantDate, wantTime] of dateCases) {
+  const t = exif.parseTime(raw);
+  ok(
+    `${label}：${raw}`,
+    t && t.date === wantDate && t.time === wantTime,
+    t
+  );
+}
+
+console.log('\n[3] 无效日期必须挡掉');
+ok('全零时间戳', exif.parseTime('0000:00:00 00:00:00') === null, exif.parseTime('0000:00:00 00:00:00'));
+ok('月份越界', exif.parseTime('2026:13:45 25:99') === null);
+ok('年份太早', exif.parseTime('0001:01:01 00:00:00') === null);
+ok('空串', exif.parseTime('') === null);
+ok('乱码', exif.parseTime('not a date') === null);
+
+/* ------------------------------ 四、GPS 写法 ------------------------------ */
+
+console.log('\n[4] GPS 写法');
+{
+  const r = probe(buildJpeg(buildTiff({
+    date: '2026:10:27 07:33:29',
+    gps: { lat: [34, 14, 18.96], lng: [108, 52, 54.4] },
+  })));
+  ok('度分秒 + N/E', Math.abs(r.lat - 34.2386) < 0.01 && Math.abs(r.lng - 108.8817) < 0.01, [r.lat, r.lng]);
+  ok('有 Ref 时不标可疑', r.geoApprox === false, r.geoApprox);
+}
+{
+  const r = probe(buildJpeg(buildTiff({
+    date: '2026:10:27 07:33:29',
+    gps: { lat: [34, 14, 18.96], lng: [108, 52, 54.4], omitRef: true },
+  })));
+  ok('缺 Ref 仍能算出坐标', Math.abs(r.lat - 34.2386) < 0.01, [r.lat, r.lng]);
+  ok('缺 Ref 标记为可疑', r.geoApprox === true, r.geoApprox);
+}
+{
+  const r = probe(buildJpeg(buildTiff({
+    date: '2026:10:27 07:33:29',
+    gps: { lat: [0], lng: [0] },
+  })));
+  ok('全零坐标忽略', r.lat === null && r.lng === null, [r.lat, r.lng]);
+}
+{
+  const r = probe(buildJpeg(buildTiff({
+    date: '2026:10:27 07:33:29',
+    gps: { lat: [33.8688], lng: [151.2093], latRef: 'S' },
+  })));
+  ok('南方单值坐标', Math.abs(r.lat + 33.8688) < 0.01, [r.lat, r.lng]);
+}
+
+/* ------------------------------ 五、动态照片 ------------------------------ */
+
+console.log('\n[5] 安卓动态照片');
+
+// 老标准：MicroVideoOffset 从文件末尾倒数
+{
+  const mp4 = buildMp4(10000);
+  const tiff = buildTiff({
+    date: '2025-06-01 18:20:11',
+    make: 'Xiaomi',
+    model: 'XIAOMI 14',
+  });
+  const base = buildJpeg(tiff, { pixels: 2000 });
+  const withMp4 = Buffer.concat([base, mp4]);
+  const xmp = XMP_OLD.replace('__OFFSET__', String(mp4.length));
+  const full = buildJpeg(tiff, { pixels: 2000, xmp, mp4 });
+
+  const r = probe(full.subarray(0, 256 * 1024), full.length);
+  ok('老标准认出动态照片', r && r.motion && r.motion.offset > 0, r && r.motion);
+  ok('老标准偏移落在 MP4 开头', r && r.motion && full.subarray(r.motion.offset, r.motion.offset + 4).toString('hex') === '00000020', r && r.motion);
+  ok('老标准长度覆盖到文件尾', r && r.motion && r.motion.offset + r.motion.length === full.length, r && r.motion);
+  ok('动态照片的日期照常读出', r && r.date === '2025-06-01', r && r.date);
+}
+
+// 新标准：Container:Directory
+{
+  const mp4 = buildMp4(12000);
+  const tiff = buildTiff({ date: '2025-08-09 06:02:33', make: 'Google', model: 'Pixel 8' });
+  const xmp = XMP_NEW.replace('__OFFSET__', String(mp4.length));
+  const full = buildJpeg(tiff, { pixels: 3000, xmp, mp4 });
+
+  const r = probe(full.subarray(0, 256 * 1024), full.length);
+  ok('新标准认出动态照片', r && r.motion && r.motion.offset > 0, r && r.motion);
+  ok('新标准偏移正确', r && r.motion && r.motion.offset + r.motion.length === full.length, r && r.motion);
+}
+
+// 没有 XMP：只能靠尾部扫描
+{
+  const mp4 = buildMp4(9000);
+  const tiff = buildTiff({ date: '2025-09-15 12:00:00' });
+  const full = buildJpeg(tiff, { pixels: 1500, mp4 });
+
+  const r = probe(full.subarray(0, 256 * 1024), full.length);
+  // 尾部扫描在 readMeta 里做（需要读文件尾），这里直接测函数
+  const tail = full.subarray(full.length - 1024 * 1024);
+  const hit = exif.findTailVideo(new DataView(toView(tail)), full.length, full.length - tail.length);
+  ok('无 XMP 时靠尾部扫描找到视频', hit && hit.offset === full.length - mp4.length, hit);
+}
+
+// 误判防护：图像数据里塞 ftyp 但不构成 MP4
+{
+  const junk = Buffer.alloc(4096, 0x77);
+  junk.write('ftyp', 100, 'latin1');
+  junk.write('mp42', 104, 'latin1');
+  const tiff = buildTiff({ date: '2025-09-15 12:00:00' });
+  const full = buildJpeg(tiff, { pixels: 200, mp4: junk });
+
+  const hit = exif.findTailVideo(new DataView(toView(full)), full.length, 0);
+  ok('乱塞 ftyp 的数据不被当成视频', hit === null, hit);
+}
+
+// 完全正常的照片不该被误判
+{
+  const tiff = buildTiff({ date: '2025-09-15 12:00:00' });
+  const full = buildJpeg(tiff, { pixels: 4000 });
+  const hit = exif.findTailVideo(new DataView(toView(full)), full.length, 0);
+  ok('普通照片没有内嵌视频', hit === null, hit);
+}
+
+/* ------------------------------ 六、其它容器 ------------------------------ */
+
+console.log('\n[6] PNG 与 WebP');
+{
+  const tiff = buildTiff({ date: '2025-03-04 21:10:00', make: 'HUAWEI', model: 'Mate 60' });
+  const r = probe(buildPng(tiff));
+  ok('PNG 的 eXIf 能读出日期', r && r.date === '2025-03-04', r && r.date);
+  ok('PNG 能读出机型', r && r.make === 'HUAWEI', r && r.make);
+}
+{
+  const tiff = buildTiff({ date: '2025-04-05 08:08:08', make: 'vivo', model: 'X100' });
+  const r = probe(buildWebp(tiff));
+  ok('WebP 的 EXIF 能读出日期', r && r.date === '2025-04-05', r && r.date);
+  ok('WebP 能读出机型', r && r.make === 'vivo', r && r.make);
+}
+
+/* ------------------------------ 七、实况标识 ------------------------------ */
+
+console.log('\n[7] 实况标识与误判');
+{
+  const notes = appleNotes(0x0011, '133ED373-F65A-4E84-B61F-41A6029C5765');
+  const r = probe(buildJpeg(buildTiff({ date: '2026:01:14 13:26:42', makerNotes: notes })));
+  ok('Apple 0x0011 取到实况 UUID', r && r.liveId === '133ED373-F65A-4E84-B61F-41A6029C5765', r && r.liveId);
+}
+{
+  // 连拍的 BurstUUID 是 0x0008，格式相同但不该被当成实况
+  const notes = appleNotes(0x0008, 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE');
+  const r = probe(buildJpeg(buildTiff({ date: '2026:01:14 13:26:42', makerNotes: notes })));
+  ok('连拍 BurstUUID 不误判成实况', r && r.liveId === '', r && r.liveId);
+}
+{
+  const r = probe(buildJpeg(buildTiff({ date: '2026:01:14 13:26:42', make: 'Apple', model: 'iPhone 15 Pro' })));
+  ok('没有 MakerNotes 时不报实况', r && r.liveId === '', r && r.liveId);
+}
+
+/* ------------------------------ 八、XMP 兜底 ------------------------------ */
+
+console.log('\n[8] 没有 EXIF 时用 XMP');
+{
+  const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/">
+   <exif:DateTimeOriginal>2025-07-07T19:19:19+08:00</exif:DateTimeOriginal>
+   <exif:GPSLatitude>31,13.5N</exif:GPSLatitude>
+   <exif:GPSLongitude>121,28.5E</exif:GPSLongitude>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`;
+  const r = probe(buildJpeg(null, { xmp }));
+  ok('XMP 补出日期', r && r.date === '2025-07-07', r && r.date);
+  ok('XMP 补出坐标', r && Math.abs(r.lat - 31.225) < 0.01, r && [r.lat, r.lng]);
+}
+
+/* ------------------------------ 九、格式嗅探 ------------------------------ */
+
+console.log('\n[9] 格式嗅探（上传时决定扩展名）');
+ok('认出 JPEG', photo.kindOf(new DataView(toView(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])))) === 'jpg');
+ok(
+  '认出 PNG',
+  photo.kindOf(new DataView(toView(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16)])))) === 'png'
+);
+{
+  const webp = buildWebp(buildTiff({ date: '2025-04-05 08:08:08' }));
+  ok('认出 WebP', photo.kindOf(new DataView(toView(webp.subarray(0, 32)))) === 'webp');
+}
+if (fs.existsSync(`${D}/IMG_5100.HEIC`)) {
+  const head = fs.readFileSync(`${D}/IMG_5100.HEIC`).subarray(0, 32);
+  ok('认出 HEIC', photo.kindOf(new DataView(toView(head))) === 'heic');
+}
+
+/* ------------------------------ 汇总 ------------------------------ */
+
+console.log(`\n${'-'.repeat(46)}`);
+console.log(`通过 ${pass} 项，失败 ${failed} 项`);
+if (failed) {
+  console.log('有失败项，看上面的 ✗ 行');
   process.exit(1);
 }

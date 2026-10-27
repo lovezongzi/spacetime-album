@@ -1,5 +1,12 @@
 const api = require('../../utils/api');
-const { pickImages, buildPhotos } = require('../../utils/photo');
+const {
+  pickImages,
+  pickLiveVideos,
+  buildPhotos,
+  matchVideos,
+  attachVideos,
+  clean,
+} = require('../../utils/photo');
 const { gradOf, prettyDate, shortDate, hash } = require('../../utils/ui');
 
 const BATCH = 3;
@@ -57,20 +64,20 @@ Page({
   async importPhotos() {
     if (this.data.importing || this.data.busy) return;
 
-    let paths = [];
+    let picked = [];
     try {
-      paths = await pickImages(9);
+      picked = await pickImages(9);
     } catch (e) {
       toast(e.message);
       return;
     }
-    if (!paths.length) return;
+    if (!picked.length) return;
 
     this.setData({ importing: true });
     try {
-      const { ok, skipped } = await buildPhotos(paths, (done, total) => {
+      const { ok, skipped, lives } = await buildPhotos(picked, (done, total, note) => {
         if (done < total) {
-          wx.showLoading({ title: `读取 ${done + 1}/${total}`, mask: true });
+          wx.showLoading({ title: `${note || '读取'} ${done + 1}/${total}`, mask: true });
         }
       });
 
@@ -79,21 +86,49 @@ Page({
         wx.showModal({
           title: '没读到拍摄时间',
           content:
-            '截图、微信转发的图片、以及部分修图 App 保存的图片会把拍摄信息（EXIF）抹掉，没有它就没法按「那一天」匹配。\n试试从相册里选相机原图（JPG / HEIC 都支持），或者先载入示例相册看看效果。',
+            '截图、微信转发的图片、以及部分修图 App 保存的图片会把拍摄信息（EXIF）抹掉，没有它就没法按「那一天」匹配。\n试试从相册里选相机原图（iPhone 的 HEIC、安卓的 JPG/HEIC 都支持），或者先载入示例相册看看效果。',
           showCancel: false,
           confirmText: '知道了',
         });
         return;
       }
 
+      // 实况照片：微信只给封面，动态部分要单独补选
+      let liveGain = 0;
+      if (lives.length) {
+        wx.hideLoading();
+        const want = await ask(
+          `检测到 ${lives.length} 张实况照片`,
+          '微信只把封面图给了小程序，动态那 3 秒要单独选一次。\niPhone 的实况在相册「视频」里通常找不到，可以先用「以文件发送」把它发给文件传输助手，会拆成 HEIC + MOV 两个文件，再从小程序里选那个 MOV —— 程序会按实况标识自动对上，顺序乱了也没关系。\n跳过也可以，封面照常参与匹配。',
+          '补选视频',
+          '先用封面'
+        );
+        if (want) {
+          const vids = await pickLiveVideos(lives.length).catch(() => []);
+          if (vids.length) {
+            const { matched } = await matchVideos(vids, lives);
+            if (matched) {
+              wx.showLoading({ title: '上传动态…', mask: true });
+              await attachVideos(lives);
+              liveGain = matched;
+            } else {
+              toast('这些视频没能和实况对上');
+            }
+          }
+        }
+      }
+
       let added = 0;
       let stats = null;
-      for (let i = 0; i < ok.length; i += BATCH) {
-        const batch = ok.slice(i, i + BATCH);
-        const upto = Math.min(i + BATCH, ok.length);
-        wx.showLoading({ title: `上传 ${upto}/${ok.length}`, mask: true });
+      let motion = 0;
+      const payload = clean(ok);
+      for (let i = 0; i < payload.length; i += BATCH) {
+        const batch = payload.slice(i, i + BATCH);
+        const upto = Math.min(i + BATCH, payload.length);
+        wx.showLoading({ title: `上传 ${upto}/${payload.length}`, mask: true });
         const r = await api.post('/api/photos', { photos: batch });
         added += r.added || 0;
+        motion += r.motion || 0;
         stats = r.stats || stats;
       }
       wx.hideLoading();
@@ -101,8 +136,9 @@ Page({
       if (stats) getApp().patchStats(stats);
       await this.load();
 
-      const skipCount = skipped.noExif + skipped.tooBig + skipped.failed;
       const parts = [`导入 ${added} 张`];
+      if (motion) parts.push(`${motion} 张带动态`);
+      else if (liveGain) parts.push(`${liveGain} 张实况已配好`);
       if (skipped.noExif) parts.push(`${skipped.noExif} 张无拍摄时间`);
       if (skipped.tooBig) parts.push(`${skipped.tooBig} 张过大`);
       if (skipped.failed) parts.push(`${skipped.failed} 张读取失败`);
@@ -180,7 +216,22 @@ function decorate(p) {
     sunX: 22 + (h % 48),
     sunY: 16 + ((h >> 4) % 34),
     hasGeo: typeof p.lat === 'number' && typeof p.lng === 'number',
+    hasMotion: !!p.motion,
   };
+}
+
+function ask(title, content, confirmText, cancelText) {
+  return new Promise((resolve) => {
+    wx.showModal({
+      title,
+      content,
+      confirmText: confirmText || '好',
+      cancelText: cancelText || '取消',
+      confirmColor: '#c96b3f',
+      success: (r) => resolve(!!r.confirm),
+      fail: () => resolve(false),
+    });
+  });
 }
 
 function byDateDesc(a, b) {

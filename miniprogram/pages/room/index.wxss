@@ -230,3 +230,81 @@
   padding-bottom: calc(36rpx + env(safe-area-inset-bottom));
   text-align: center;
 }
+
+/* --------------------------- 动态 / 实况角标 --------------------------- */
+
+.shot-live {
+  position: absolute;
+  right: 8rpx;
+  top: 8rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 10rpx;
+  background: rgba(201, 107, 63, 0.92);
+  color: #fff8f2;
+  font-size: 18rpx;
+  letter-spacing: 0.4rpx;
+  z-index: 2;
+}
+
+.shot-live.ghost {
+  background: rgba(22, 18, 15, 0.42);
+  color: rgba(255, 245, 235, 0.88);
+}
+
+/* ------------------------------ 单张预览 ------------------------------ */
+
+.viewer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  background: rgba(12, 10, 9, 0.975);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56rpx 32rpx calc(56rpx + env(safe-area-inset-bottom));
+}
+
+.viewer-stage {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewer-media {
+  width: 100%;
+  height: 100%;
+}
+
+.viewer-sky {
+  position: relative;
+  width: 82%;
+  height: 52%;
+  border-radius: 28rpx;
+  overflow: hidden;
+}
+
+.viewer-cap {
+  margin-top: 26rpx;
+  color: rgba(255, 246, 236, 0.92);
+  font-size: 24rpx;
+  letter-spacing: 1rpx;
+}
+
+.viewer-note {
+  margin-top: 10rpx;
+  color: rgba(255, 236, 220, 0.6);
+  font-size: 22rpx;
+  text-align: center;
+  padding: 0 40rpx;
+}
+
+.viewer-note.dim {
+  margin-top: 22rpx;
+  color: rgba(255, 236, 220, 0.32);
+}

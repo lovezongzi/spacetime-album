@@ -10,6 +10,7 @@ Page({
     groups: [],
     spanLabel: '',
     revealing: false,
+    viewing: null,
   },
 
   onLoad(query) {
@@ -107,6 +108,45 @@ Page({
     } finally {
       this.setData({ revealing: false });
     }
+  },
+
+  /** 点开一张：有动态就播，没有就静态看大图 */
+  openShot(e) {
+    const { id, side } = e.currentTarget.dataset;
+    const groups = this.data.groups;
+    let found = null;
+    let date = '';
+    for (const g of groups) {
+      const list = side === 'theirs' ? g.theirs : g.mine;
+      const hit = list.find((p) => p.id === id);
+      if (hit) {
+        found = hit;
+        date = g.pretty;
+        break;
+      }
+    }
+    if (!found) return;
+    this.setData({
+      viewing: {
+        ...found,
+        datePretty: date,
+        hasMotion: !!found.motion,
+      },
+    });
+    if (found.motion) wx.vibrateShort({ type: 'light', fail: () => {} });
+  },
+
+  closeShot() {
+    this.setData({ viewing: null });
+  },
+
+  noop() {},
+
+  /** 静态图走系统预览，能双指缩放、左右滑 */
+  previewStill() {
+    const v = this.data.viewing;
+    if (!v || v.hasMotion || v.svg) return;
+    wx.previewImage({ current: v.thumb, urls: [v.thumb] });
   },
 });
 

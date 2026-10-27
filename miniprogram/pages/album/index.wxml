@@ -46,6 +46,8 @@
           <view class="sky-sun" style="left:{{item.sunX}}%;top:{{item.sunY}}%"></view>
         </view>
         <view class="tag mono">{{item.dayLabel}}</view>
+        <view class="live-badge" wx:if="{{item.hasMotion}}">动态</view>
+        <view class="live-badge ghost" wx:elif="{{item.live}}">实况</view>
       </view>
     </view>
 
@@ -69,7 +71,18 @@
   <view class="sheet-grip"></view>
   <view class="sheet-body">
     <view class="detail-preview">
-      <image wx:if="{{!detail.svg}}" class="detail-img" src="{{detail.thumb}}" mode="aspectFill" />
+      <video
+        wx:if="{{detail.hasMotion}}"
+        class="detail-img"
+        src="{{detail.motion}}"
+        object-fit="cover"
+        autoplay
+        loop
+        muted
+        controls="{{false}}"
+        show-center-play-btn="{{false}}"
+      />
+      <image wx:elif="{{!detail.svg}}" class="detail-img" src="{{detail.thumb}}" mode="aspectFill" />
       <view wx:else class="detail-img sky-ph g{{detail.grad}}">
         <view class="sky-sun" style="left:{{detail.sunX}}%;top:{{detail.sunY}}%"></view>
       </view>
@@ -77,6 +90,11 @@
     <view class="detail-date">{{detail.pretty}}</view>
     <view class="muted detail-meta">
       {{detail.time || '时间未知'}}<text wx:if="{{detail.place}}"> · {{detail.place}}</text><text wx:elif="{{detail.hasGeo}}"> · 已记录坐标</text>
+      <text wx:if="{{detail.model}}"> · {{detail.model}}</text>
+    </view>
+    <view class="muted detail-note" wx:if="{{detail.hasMotion}}">这是一个动态照片，画面在轻微流动。</view>
+    <view class="muted detail-note" wx:elif="{{detail.live}}">
+      这是实况照片的封面。iPhone 的动态部分不在这张图里 —— 想让它动起来，重新导入时选上对应的那段视频即可。
     </view>
     <button class="btn quiet block remove" bindtap="removePhoto">从相册移除这张</button>
   </view>

@@ -138,3 +138,31 @@
 .br {
   height: 0;
 }
+
+/* --------------------------- 动态 / 实况角标 --------------------------- */
+
+.live-badge {
+  position: absolute;
+  right: 8rpx;
+  top: 8rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 10rpx;
+  background: rgba(201, 107, 63, 0.92);
+  color: #fff8f2;
+  font-size: 18rpx;
+  letter-spacing: 0.4rpx;
+  z-index: 2;
+}
+
+.live-badge.ghost {
+  background: rgba(22, 18, 15, 0.42);
+  color: rgba(255, 245, 235, 0.88);
+}
+
+.detail-note {
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  text-align: center;
+  color: #8a7f74;
+}
