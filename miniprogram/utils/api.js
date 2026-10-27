@@ -13,6 +13,12 @@ function raw(path, { method = 'GET', data } = {}) {
       return;
     }
 
+    const app = getApp();
+    if (app && app.globalData.cloudReady === false) {
+      reject(new Error('云开发没初始化成功，检查 app.js 里的 wx.cloud.init'));
+      return;
+    }
+
     wx.cloud.callFunction({
       name: CLOUD_FN,
       data: { path, method, body: data || {} },
@@ -30,15 +36,23 @@ function raw(path, { method = 'GET', data } = {}) {
       },
       fail(e) {
         const msg = e.errMsg || '';
+        // 原始错误一定要打出来，否则只能看到"连不上"这种没信息量的话
+        console.error(`[cloud] ${method} ${path} 调用失败：`, msg);
+
         let text = '云服务连不上，稍后再试';
-        if (/FunctionName|FUNCTION_NOT_FOUND|-501000|not found/i.test(msg)) {
-          text = '云函数 api 还没部署：开发者工具里右键 cloudfunctions/api → 上传并部署';
-        } else if (/env|environment|envId/i.test(msg)) {
-          text = '云开发环境没选对：在开发者工具「云开发」面板里确认环境，再核对 config.js';
+        if (/-501000|no cloud|cloud environment|env.*not.*exist|TcbError/i.test(msg)) {
+          text = '云环境还没开通：公众平台 → 开发 → 云开发 → 建一个环境';
+        } else if (/FunctionName|-501005|FUNCTION_NOT_FOUND|not found/i.test(msg)) {
+          text = '云函数 api 还没部署：右键 cloudfunctions/api → 上传并部署';
+        } else if (/env|environment|envId|CLOUD_ENV/i.test(msg)) {
+          text = '云开发环境没选对：核对 config.js 里的 CLOUD_ENV';
         } else if (/timeout/i.test(msg)) {
           text = '云函数响应太慢，稍后再试';
         }
-        reject(new Error(text));
+
+        const err = new Error(text);
+        err.raw = msg;
+        reject(err);
       },
     });
   });
