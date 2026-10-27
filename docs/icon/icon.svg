@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.04" y2="1">
+      <stop offset="0"    stop-color="#191030"/>
+      <stop offset="0.22" stop-color="#2A1C44"/>
+      <stop offset="0.46" stop-color="#4E2C55"/>
+      <stop offset="0.66" stop-color="#8B4259"/>
+      <stop offset="0.82" stop-color="#D26C4C"/>
+      <stop offset="0.94" stop-color="#FFA55F"/>
+      <stop offset="1"    stop-color="#FFC583"/>
+    </linearGradient>
+
+    <radialGradient id="sunA" cx="0.30" cy="0.24" r="0.88">
+      <stop offset="0"    stop-color="#FFD6AB"/>
+      <stop offset="0.40" stop-color="#FF9364"/>
+      <stop offset="1"    stop-color="#EA5535"/>
+    </radialGradient>
+
+    <radialGradient id="sunB" cx="0.32" cy="0.24" r="0.90">
+      <stop offset="0"    stop-color="#C9687F"/>
+      <stop offset="0.42" stop-color="#9E3E60"/>
+      <stop offset="1"    stop-color="#6B2544"/>
+    </radialGradient>
+
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"    stop-color="#FFD89C" stop-opacity="0.36"/>
+      <stop offset="0.46" stop-color="#FFAE6E" stop-opacity="0.13"/>
+      <stop offset="1"    stop-color="#FFAE6E" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"    stop-color="#FFFCF2" stop-opacity="0.62"/>
+      <stop offset="0.58" stop-color="#FFE9C2" stop-opacity="0.12"/>
+      <stop offset="1"    stop-color="#FFE9C2" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#3A2138"/>
+      <stop offset="0.4" stop-color="#241531"/>
+      <stop offset="1"   stop-color="#170E24"/>
+    </linearGradient>
+
+    <clipPath id="clipA"><circle cx="378" cy="494" r="228"/></clipPath>
+    <clipPath id="clipB"><circle cx="668" cy="572" r="226"/></clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#sky)"/>
+
+  <!-- 高空薄云 -->
+  <g fill="#FFFFFF" opacity="0.05">
+    <ellipse cx="786" cy="120" rx="196" ry="17"/>
+    <ellipse cx="284" cy="182" rx="146" ry="12"/>
+  </g>
+
+  <!-- 光晕 -->
+  <circle cx="378" cy="494" r="330" fill="url(#halo)"/>
+  <circle cx="668" cy="572" r="322" fill="url(#halo)" opacity="0.62"/>
+  <circle cx="522" cy="532" r="246" fill="url(#glow)"/>
+
+  <!-- 太阳 A：还没落下 -->
+  <circle cx="378" cy="494" r="228" fill="url(#sunA)"/>
+  <!-- 太阳 B：正沉入地平线 -->
+  <circle cx="668" cy="572" r="226" fill="url(#sunB)"/>
+
+  <!-- 穿过太阳的薄云 -->
+  <g clip-path="url(#clipA)">
+    <ellipse cx="346" cy="462" rx="300" ry="16" fill="#C0475C" opacity="0.18"/>
+    <ellipse cx="406" cy="580" rx="300" ry="12" fill="#B03E55" opacity="0.10"/>
+  </g>
+  <g clip-path="url(#clipB)">
+    <ellipse cx="668" cy="648" rx="280" ry="13" fill="#FF8E7A" opacity="0.13"/>
+  </g>
+
+  <!-- 交集：两份日落叠加的地方，亮到过曝 -->
+  <g clip-path="url(#clipB)">
+    <circle cx="378" cy="494" r="228" fill="#FFF8E6"/>
+  </g>
+  <g clip-path="url(#clipB)">
+    <ellipse cx="486" cy="524" rx="52" ry="76" fill="#FFFFFF" opacity="0.35"/>
+  </g>
+
+  <!-- 地平线 -->
+  <path d="M-40 792 C 120 782, 250 800, 400 793 C 560 786, 706 800, 862 789
+           C 954 783, 1014 794, 1064 788 L1064 1024 L-40 1024 Z"
+        fill="url(#ground)"/>
+  <path d="M-40 792 C 120 782, 250 800, 400 793 C 560 786, 706 800, 862 789
+           C 954 783, 1014 794, 1064 788"
+        fill="none" stroke="#FFC98F" stroke-width="2.8" opacity="0.45" stroke-linecap="round"/>
+</svg>

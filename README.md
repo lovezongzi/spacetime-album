@@ -1,6 +1,10 @@
-# 时空相册 · Spacetime Album
+<p align="center">
+  <img src="docs/icon/icon-192.png" width="104" alt="时空相册" />
+</p>
 
-> 在那些我们还不认识的日子里，我们看过同一片天。
+<h1 align="center">时空相册 · Spacetime Album</h1>
+
+<p align="center"><sub>在那些我们还不认识的日子里，我们看过同一片天。</sub></p>
 
 一个很轻的实验：**两个陌生人，交换彼此在同一天拍下的照片。**
 
