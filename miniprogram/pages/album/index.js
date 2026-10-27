@@ -78,7 +78,8 @@ Page({
         wx.hideLoading();
         wx.showModal({
           title: '没读到拍摄时间',
-          content: '这些照片里没有 EXIF 拍摄信息，可能是截图或经过转发的图片。试试原图，或者先载入示例相册看看效果。',
+          content:
+            '截图、微信转发的图片、以及部分修图 App 保存的图片会把拍摄信息（EXIF）抹掉，没有它就没法按「那一天」匹配。\n试试从相册里选相机原图（JPG / HEIC 都支持），或者先载入示例相册看看效果。',
           showCancel: false,
           confirmText: '知道了',
         });

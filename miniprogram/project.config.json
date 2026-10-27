@@ -20,7 +20,8 @@
   "condition": {},
   "packOptions": {
     "ignore": [
-      { "type": "file", "value": "preview-qr.png" }
+      { "type": "file", "value": "preview-qr.png" },
+      { "type": "folder", "value": "cloudfunctions" }
     ]
   },
   "editorSetting": {
