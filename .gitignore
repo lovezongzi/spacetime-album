@@ -4,3 +4,7 @@ data/
 .DS_Store
 *.log
 .env
+
+# 开发者工具产出的临时文件
+miniprogram-qr.png
+miniprogram/project.private.config.json
